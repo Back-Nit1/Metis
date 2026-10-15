@@ -379,6 +379,27 @@ def test_a_duplicate_due_event_does_not_create_a_second_notification(store, cloc
     assert len(store.list_notifications(USER).items) == 1
 
 
+def test_a_failed_dispatch_write_is_retried_not_lost(store, clock, context, monkeypatch):
+    task = make_task(store, clock)
+    reminder = add_reminder(store, clock, task)
+    drain(context)
+    clock.set(DUE)
+    raise_due_event(store, user_id=USER, reminder_id=reminder.id, clock=clock)
+    real = store.transaction
+
+    def locked(user_id):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(store, "transaction", locked)
+    drain(context, cycles=1)  # transient failure while writing the notification
+    monkeypatch.setattr(store, "transaction", real)
+    clock.set(DUE + timedelta(hours=1))
+    drain(context)
+
+    assert len(store.list_notifications(USER).items) == 1
+    assert store.get(USER, "reminder", reminder.id).state is ReminderState.DELIVERED
+
+
 def test_an_unsupported_channel_still_leaves_the_in_app_record(store, clock):
     task = make_task(store, clock)
     reminder = add_reminder(store, clock, task, channel="web_push")

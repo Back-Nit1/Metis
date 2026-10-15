@@ -197,13 +197,15 @@ def handle_reminder_due(envelope: EventEnvelope, context: DispatchContext) -> No
             return
         raise MetisError(ErrorCode.REVISION_CONFLICT, decision.reason)
 
-    # One winner per occurrence. A second worker simply stops here.
-    if not state.claim_once(envelope.user_id, f"notify:{reminder.occurrence_key}", context.worker_id):
-        log.info("another worker already claimed occurrence %s", reminder.occurrence_key)
-        return
-
+    # One winner per occurrence: the notification id is derived from the
+    # occurrence and inserted as "must not exist", so the claim commits together
+    # with the DISPATCHING write. A separate claim committed first would turn a
+    # failed transaction into a silently lost reminder on retry.
     target = state.get(envelope.user_id, reminder.target_kind, reminder.target_id)
     notification = build_notification(reminder, target, clock=context.clock)
+    if state.get(envelope.user_id, "notification", notification.id) is not None:
+        log.info("occurrence %s was already dispatched", reminder.occurrence_key)
+        return
 
     with state.transaction(envelope.user_id) as tx:
         stored_notification = tx.put("notification", notification)

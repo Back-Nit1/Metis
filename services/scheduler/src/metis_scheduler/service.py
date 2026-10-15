@@ -16,6 +16,7 @@ The honesty rules this module enforces, each with a test:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
@@ -398,7 +399,8 @@ def build_notification(
             body = f"{title}" + (f" — due {deadline.isoformat()}" if deadline else "")
     now = clock.now()
     return Notification(
-        id=new_id("not"),
+        # Derived from the occurrence so inserting it doubles as the dispatch claim.
+        id="not_" + hashlib.sha256(reminder.occurrence_key.encode()).hexdigest()[:24],
         user_id=reminder.user_id,
         created_at=now,
         updated_at=now,

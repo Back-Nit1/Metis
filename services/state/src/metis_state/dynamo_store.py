@@ -691,28 +691,31 @@ class DynamoStateStore:
         cap = settings().limits.daily_micro_usd
         now = self._clock.now()
         reservation_id = new_id("bres")
+        # Condition expressions allow no arithmetic, so reserved + settled is kept
+        # as its own running counter (``committed_micro_usd``) to compare against.
+        exceeded = MetisError(
+            ErrorCode.BUDGET_EXCEEDED,
+            "daily budget would be exceeded",
+            details={"operation": operation, "cap_micro_usd": str(cap)},
+        )
+        if micro_usd > cap:
+            raise exceeded
         try:
             self._table.update_item(
                 Key={"pk": _pk(user_id), "sk": f"USAGE#{local_date.isoformat()}"},
-                UpdateExpression=("ADD reserved_micro_usd :amt, model_calls :one SET updated_at = :now"),
-                ConditionExpression=(
-                    "attribute_not_exists(reserved_micro_usd) OR "
-                    "reserved_micro_usd + if_not_exists(settled_micro_usd, :zero) <= :headroom"
+                UpdateExpression=(
+                    "ADD reserved_micro_usd :amt, committed_micro_usd :amt, model_calls :one SET updated_at = :now"
                 ),
+                ConditionExpression="attribute_not_exists(committed_micro_usd) OR committed_micro_usd <= :headroom",
                 ExpressionAttributeValues={
                     ":amt": micro_usd,
                     ":one": 1,
-                    ":zero": 0,
                     ":headroom": cap - micro_usd,
                     ":now": now.isoformat(),
                 },
             )
         except self._client.exceptions.ConditionalCheckFailedException as exc:
-            raise MetisError(
-                ErrorCode.BUDGET_EXCEEDED,
-                "daily budget would be exceeded",
-                details={"operation": operation, "cap_micro_usd": str(cap)},
-            ) from exc
+            raise exceeded from exc
         self._table.put_item(
             Item={
                 "pk": _pk(user_id),
@@ -772,10 +775,14 @@ class DynamoStateStore:
             return  # someone else settled it first
         self._table.update_item(
             Key={"pk": _pk(user_id), "sk": f"USAGE#{_as_str(item['local_date'])}"},
-            UpdateExpression="ADD reserved_micro_usd :neg, settled_micro_usd :charge SET updated_at = :now",
+            UpdateExpression=(
+                "ADD reserved_micro_usd :neg, settled_micro_usd :charge, committed_micro_usd :delta "
+                "SET updated_at = :now"
+            ),
             ExpressionAttributeValues={
                 ":neg": -reserved,
                 ":charge": charge,
+                ":delta": charge - reserved,
                 ":now": self._clock.now().isoformat(),
             },
         )

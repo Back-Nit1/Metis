@@ -143,7 +143,8 @@ class LocalSourceStore:
         return count
 
     def owns_key(self, user_id: str, key: str) -> bool:
-        return key.startswith(owner_prefix(user_id) + "/")
+        # ".." would resolve outside the prefix on a filesystem.
+        return key.startswith(owner_prefix(user_id) + "/") and ".." not in key.split("/")
 
 
 class S3SourceStore:

@@ -67,6 +67,10 @@ class Transaction(Protocol):
 
     def bump_planning_epoch(self, user_id: str) -> int: ...
 
+    def remember_idempotent(self, key: str, response: dict[str, Any]) -> None:
+        """Store an idempotent response in the same commit as the entity writes."""
+        ...
+
 
 @runtime_checkable
 class StateStore(Protocol):

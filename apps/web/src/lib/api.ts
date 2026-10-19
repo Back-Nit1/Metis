@@ -237,7 +237,9 @@ export const api = {
     const url = upload.url.startsWith("http") ? upload.url : `${base}${upload.url}`;
     // Only our own API origin gets credentials and correlation; a presigned
     // external URL is signed for exactly the headers the server returned.
-    const local = new URL(url).origin === new URL(base).origin;
+    // `base` is "" behind the same-origin proxy, so resolve against the page.
+    const page = globalThis.location?.href;
+    const local = new URL(url, page).origin === new URL(base, page).origin;
     const own: Record<string, string> = local
       ? {
           "X-Correlation-Id": newCorrelationId(),

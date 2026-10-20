@@ -126,14 +126,19 @@ export function ProposalReview({
 
   return (
     <Card>
-      <SectionHeading hint={`${proposal.items?.length ?? 0} found · ${proposal.extractor_version}`}>
+      <SectionHeading hint={`${proposal.items?.length ?? 0} found`}>
         Review what was found
       </SectionHeading>
       <p className="mb-4 max-w-prose text-sm text-muted">
         Nothing below exists yet. Unknown fields were left empty on purpose.{" "}
         <span className="text-xs">
-          Proposed by <code className="font-mono">{proposal.model_id}</code> ({proposal.adapter_mode}
-          {proposal.adapter_mode === "fixture" ? ": test output, not a real model" : ""}).
+          {proposal.adapter_mode === "fixture" ? (
+            "Sample extraction: test output from simple rules, not a real model."
+          ) : (
+            <>
+              Proposed by <code className="font-mono">{proposal.model_id}</code>.
+            </>
+          )}
         </span>
       </p>
 

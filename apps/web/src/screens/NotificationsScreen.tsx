@@ -12,7 +12,7 @@ import { useSession } from "../app/session";
 import { timeLabel } from "../lib/format";
 
 export function NotificationsScreen() {
-  const { notifications, markRead, timezone, notificationPermission, refreshNotifications } = useSession();
+  const { notifications, markRead, timezone, notificationPermission, requestNotificationPermission, refreshNotifications } = useSession();
 
   return (
     <div className="flex flex-col gap-5">
@@ -28,6 +28,11 @@ export function NotificationsScreen() {
           {notificationPermission === "unsupported"
             ? "This browser cannot show system notifications. Reminders appear here only, and nothing is marked as delivered to your device."
             : "System notifications are off, so reminders appear here only. Nothing was marked as delivered to your device."}
+          {notificationPermission === "default" && (
+            <Button className="mt-2" onClick={() => void requestNotificationPermission()}>
+              Turn on notifications
+            </Button>
+          )}
         </Notice>
       )}
       {notifications.length === 0 ? (

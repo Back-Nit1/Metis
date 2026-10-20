@@ -5,7 +5,7 @@
  * The browser enforces the server's own limits rather than its own guesses, so
  * the numbers come from `/v1/limits` instead of being hardcoded here.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { HealthResponse, Notification, Preferences } from "../contracts/metis";
 import { api } from "../lib/api";
 
@@ -54,10 +54,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     typeof Notification === "undefined" ? "unsupported" : (Notification.permission as NotificationPermissionState),
   );
 
+  // Ids already in the feed. null until the first load, so opening the app
+  // never pops a notification for every old alert.
+  const seen = useRef<Set<string> | null>(null);
+
   const refreshNotifications = useCallback(async () => {
     try {
       const page = await api.listNotifications();
-      setNotifications(page.items ?? []);
+      const items = page.items ?? [];
+      setNotifications(items);
+      // Tab-local system notification for a new unread alert. The server's
+      // delivery record stays "in_app": this does not claim device delivery.
+      if (seen.current && typeof Notification !== "undefined" && Notification.permission === "granted") {
+        for (const n of items) {
+          if (!n.read_at && !seen.current.has(n.id)) new Notification(n.title, { body: n.body, tag: n.id });
+        }
+      }
+      seen.current = new Set(items.map((n) => n.id));
     } catch {
       // The feed is not worth an error banner; the status bar already shows
       // that the server is unreachable.

@@ -8,6 +8,8 @@ dispatcher stays single.
 from __future__ import annotations
 
 import logging
+from datetime import time
+from types import SimpleNamespace
 from typing import Any
 
 from metis_contracts import (
@@ -15,8 +17,12 @@ from metis_contracts import (
     ErrorCode,
     EventEnvelope,
     EventType,
+    ExtractedItem,
+    ExtractedItemKind,
     JobState,
     MetisError,
+    ProposalDisposition,
+    RequestedAction,
     settings,
 )
 from metis_contracts.events import ExtractionRequestedPayload, PurgePayload, TranscriptFinalizedPayload
@@ -24,6 +30,7 @@ from metis_contracts.events import ExtractionRequestedPayload, PurgePayload, Tra
 from .dispatcher import DispatchContext, HandlerRegistry, is_fresh, outbox_event
 from .export import handle_export_requested
 from .extraction import ExtractionService
+from .timeref import to_instant
 from .transcription import launch_transcription, transcribe_inline
 
 log = logging.getLogger("metis.pipeline.handlers")
@@ -153,11 +160,12 @@ def handle_extraction_requested(envelope: EventEnvelope, context: DispatchContex
 
 @registry.register(EventType.EXTRACTION_COMPLETED)
 def handle_extraction_completed(envelope: EventEnvelope, context: DispatchContext) -> None:
-    """Terminal for now: the proposal is already persisted and visible.
+    """Hand a clear, fully-specified proposal to the scheduler; leave the rest for review.
 
-    Auto-promotion of unambiguous items is a deliberate next step, not a
-    silent default — turning every brainstorm into a task is exactly what the
-    product must not do.
+    Auto-accept only when EVERY item is a task whose reminder time resolves
+    exactly. Anything tentative or incomplete stays pending: turning every
+    brainstorm into a task is exactly what the product must not do, and
+    accepting resolves the whole proposal, so a mixed one is never split.
     """
     log.info(
         "proposal ready source=%s items=%s clarify=%s",
@@ -165,6 +173,60 @@ def handle_extraction_completed(envelope: EventEnvelope, context: DispatchContex
         envelope.payload.get("items"),
         envelope.payload.get("requires_clarification"),
     )
+    state = context.state_store
+    proposal = state.get(envelope.user_id, "proposal", envelope.payload["proposal_id"])
+    if proposal is None or proposal.disposition is not ProposalDisposition.PENDING:
+        return  # already resolved by the user, or superseded: never resolve twice
+    if proposal.requires_clarification or not proposal.items:
+        return
+    timezone_name = state.get_preferences(envelope.user_id).timezone
+    if not all(_schedulable(item, timezone_name) for item in proposal.items):
+        return
+    try:
+        from metis_api.deps import RequestContext
+        from metis_api.proposals import resolve_proposal
+    except ImportError:  # worker image without the API package: stays pending, honestly
+        log.warning("auto-schedule skipped: metis_api is not installed in this worker")
+        return
+    from metis_contracts.api import ItemDecision, ResolveProposalRequest
+
+    # Same code path as a user's "accept all"; reminders land as pending_schedule
+    # and the outbox dispatcher confirms the sync, so nothing is claimed early.
+    ctx = RequestContext(
+        principal=SimpleNamespace(user_id=envelope.user_id),  # type: ignore[arg-type]
+        adapters=SimpleNamespace(clock=context.clock, state_store=state, embedder=context.embedder),  # type: ignore[arg-type]
+        correlation_id=envelope.correlation_id,
+    )
+    response = resolve_proposal(
+        ctx,
+        proposal.id,
+        ResolveProposalRequest(
+            expected_revision=proposal.revision,
+            decisions=[ItemDecision(item_index=i, action="accept") for i in range(len(proposal.items))],
+        ),
+    )
+    log.info(
+        "auto-scheduled proposal=%s tasks=%d reminders=%d",
+        proposal.id,
+        len(response.created_task_ids),
+        len(response.created_reminder_ids),
+    )
+
+
+def _schedulable(item: ExtractedItem, timezone_name: str) -> bool:
+    """A task that asks for a reminder, with nothing missing and a time that resolves."""
+    if item.kind is not ExtractedItemKind.TASK or item.missing_fields:
+        return False
+    if not {RequestedAction.REMIND_GENERIC, RequestedAction.REMIND_TO_REGISTER} & set(item.requested_actions):
+        return False
+    if item.remind_at is not None:
+        return True
+    local_date = item.local_date or item.deadline_local_date
+    if not (local_date and item.remind_local_time):
+        return False
+    hour, minute = (int(part) for part in item.remind_local_time.split(":"))
+    resolution = to_instant(local_date, time(hour, minute), item.timezone or timezone_name)
+    return resolution.instant is not None and resolution.dst == "ok"
 
 
 registry.register(EventType.EXPORT_REQUESTED)(handle_export_requested)

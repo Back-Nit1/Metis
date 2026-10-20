@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from e2e_support import (
     DUE,
     NY,

@@ -126,6 +126,104 @@ class FixtureInferenceClient:
         return 0
 
 
+_MONTHS = {m: i for i, m in enumerate(
+    "jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+_BY_DATE = re.compile(
+    r"\b(?:by|before|until|on)\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b",
+    re.IGNORECASE,
+)
+_REMIND = re.compile(r"^\s*(?:please\s+)?remind me (?:to |about )?", re.IGNORECASE)
+_EVENT_HEAD = re.compile(
+    r"^\s*(dentist|doctor|dr\.?|appointment|meeting|lunch|dinner|call with|interview|haircut|"
+    r"flight|party|class|standup)\b",
+    re.IGNORECASE,
+)
+_DATE_WORD = re.compile(r"\b(today|tonight|tomorrow|day after tomorrow|next week|(?:next|this|coming)\s+\w+day)\b", re.I)
+_HEADER = re.compile(r"Captured on (\d{4}-\d{2}-\d{2}) in timezone (\S+?)\.\n")
+
+
+def _clauses(text: str) -> list[tuple[int, int]]:
+    """(start, end) offsets of sentence-like clauses, trimmed of whitespace."""
+    out = []
+    for m in re.finditer(r"[^.!?\n]+(?:[.!?]+(?=\s|$)|$)", text):
+        # "March 3rd." keeps its dot: only split on terminators followed by space/end.
+        raw = m.group(0)
+        lead = len(raw) - len(raw.lstrip())
+        body = raw.strip().rstrip(".!?").rstrip()
+        if body:
+            out.append((m.start() + lead, m.start() + lead + len(body)))
+    return out
+
+
+def _fixture_clause_items(head: str, text: str) -> list[dict[str, Any]]:
+    """One proposal per actionable clause. Unstated date/time stays None."""
+    from datetime import date, datetime, time
+
+    from metis_pipeline.timeref import parse_clock_time, parse_relative_date, to_instant
+
+    header = _HEADER.search(head)
+    today = date.fromisoformat(header.group(1)) if header else None
+    tz = header.group(2) if header else None
+    anchor = None
+    if today and tz:
+        from metis_contracts import resolve_timezone
+
+        anchor = datetime.combine(today, time(12, 0), tzinfo=resolve_timezone(tz))
+
+    items: list[dict[str, Any]] = []
+    for n, (start, end) in enumerate(_clauses(text)):
+        clause = text[start:end]
+        low = clause.lower()
+        evidence = [{"span_ref": f"span_c{n}", "start_char": start, "end_char": end}]
+
+        by = _BY_DATE.search(clause)
+        deadline = None
+        if by and today:
+            month, day = _MONTHS[by.group(1).lower()[:3]], int(by.group(2))
+            try:
+                deadline = date(today.year, month, day)
+                if deadline < today:
+                    deadline = deadline.replace(year=today.year + 1)
+            except ValueError:
+                deadline = None
+        rel = parse_relative_date(clause, captured_at=anchor, capture_timezone=tz) if anchor else None
+        clock = parse_clock_time(clause)  # bare "at 3" stays None: am/pm is never guessed
+
+        title = _REMIND.sub("", clause).strip()
+        title = _DATE_WORD.sub("", title)
+        title = re.sub(r"\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?\s*$", "", title, flags=re.I)
+        title = re.sub(r"\s+(?:at\s+\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?)", "", title, flags=re.I)
+        title = _BY_DATE.sub("", title).strip(" ,;-")
+        title = (title[:1].upper() + title[1:]) or clause
+
+        if _REMIND.match(clause):
+            at = to_instant(rel.local_date, clock, tz).instant if rel and rel.local_date and clock else None
+            missing = [f for f, v in (("remind_at", at), ("remind_date", rel)) if v is None]
+            items.append({"kind": "reminder_request", "title": title,
+                          "remind_at": at.isoformat() if at else None,
+                          "local_date": rel.local_date.isoformat() if rel and rel.local_date else None,
+                          "timezone": tz if at else None,
+                          "requested_actions": ["remind_generic"],
+                          "missing_fields": missing, "evidence": evidence})
+        elif _EVENT_HEAD.match(clause):
+            at = to_instant(rel.local_date, clock, tz).instant if rel and rel.local_date and clock else None
+            missing = ([] if rel else ["local_date"]) + ([] if clock else ["start_time"])
+            items.append({"kind": "event_intent", "title": title, "attendance_status": "tentative",
+                          "registration_status": "unknown",
+                          "starts_at": at.isoformat() if at else None,
+                          "local_date": rel.local_date.isoformat() if rel and rel.local_date else None,
+                          "timezone": tz if rel else None, "requested_actions": [],
+                          "missing_fields": missing, "evidence": evidence})
+        elif re.match(r"\s*(register|sign up|buy|call|email|book|pay|renew|send|pick up|schedule|finish|submit)\b", low):
+            if deadline is None and rel and rel.local_date:
+                deadline = rel.local_date
+            items.append({"kind": "task", "title": title,
+                          "deadline_local_date": deadline.isoformat() if deadline else None,
+                          "missing_fields": [] if deadline or not low.startswith("register") else ["deadline_local_date"],
+                          "evidence": evidence})
+    return items
+
+
 def _fixture_extraction(user_content: str) -> dict[str, Any]:
     """Rule-based stand-in extraction.
 
@@ -204,16 +302,8 @@ def _fixture_extraction(user_content: str) -> dict[str, Any]:
         missing.append("event_date_time")
 
     event_registers = any("remind_to_register" in i.get("requested_actions", []) for i in items)
-    if "register" in lowered and "already registered" not in lowered and not event_registers:
-        items.append(
-            {
-                "kind": "task",
-                "title": "Register for the event",
-                "deadline_local_date": None,
-                "missing_fields": ["deadline_local_date"],
-                "evidence": span("span_register"),
-            }
-        )
+    if not items and not event_registers:
+        items.extend(_fixture_clause_items(head, text))
 
     if "tried" in lowered and ("failed" in lowered or "stale" in lowered or "abandoned" in lowered):
         items.append(

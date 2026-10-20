@@ -448,3 +448,68 @@ def test_candidates_block_precedes_note_marker():
     )
     assert prompt.index("event_1 | event | " + "X" * 80 + "\n") < prompt.index("NOTE:\n")
     assert "CANDIDATES" not in build_prompt("hi", captured_local_date=T0.date(), capture_timezone=NY)
+
+
+# --- fixture clause extraction ------------------------------------------------
+HEAD = "Captured on 2026-10-19 in timezone America/New_York.\n\nNOTE:\n"
+GOLDEN = (
+    "Dentist next Tuesday at 3. Register for the Boston half marathon by March 3rd. "
+    "Remind me to call mom tomorrow at 6pm. Buy milk."
+)
+
+
+def _fx(note):
+    from metis_pipeline.inference import _fixture_extraction
+
+    return _fixture_extraction(HEAD + note)["items"]
+
+
+def test_golden_multi_clause_note_yields_four_proposals():
+    items = _fx(GOLDEN)
+    assert [(i["kind"], i["title"]) for i in items] == [
+        ("event_intent", "Dentist"),
+        ("task", "Register for the Boston half marathon"),
+        ("reminder_request", "Call mom"),
+        ("task", "Buy milk"),
+    ]
+    dentist, register, call, milk = items
+    assert dentist["local_date"] == "2026-10-20" and dentist["starts_at"] is None  # bare "at 3"
+    assert register["deadline_local_date"] == "2027-03-03"
+    assert call["remind_at"] == "2026-10-20T22:00:00+00:00"  # 6pm EDT
+    assert milk["deadline_local_date"] is None
+    assert all(i["evidence"] and i["evidence"][0]["span_ref"] for i in items)
+
+
+@pytest.mark.parametrize(
+    ("note", "kind", "field", "value"),
+    [
+        ("Buy milk", "task", "deadline_local_date", None),
+        ("Register for the race", "task", "deadline_local_date", None),
+        ("Pay rent by Nov 5th", "task", "deadline_local_date", "2026-11-05"),
+        ("Dentist", "event_intent", "local_date", None),
+        ("Remind me to stretch", "reminder_request", "remind_at", None),
+        ("Remind me to stretch tomorrow", "reminder_request", "remind_at", None),
+    ],
+)
+def test_unstated_values_stay_null(note, kind, field, value):
+    (item,) = _fx(note)
+    assert item["kind"] == kind and item[field] == value
+
+
+def test_clauses_offsets_slice_the_note():
+    for item in _fx(GOLDEN):
+        ev = item["evidence"][0]
+        assert GOLDEN[ev["start_char"] : ev["end_char"]]
+
+
+def test_golden_note_survives_the_full_service_validation(store, clock):
+    outcome = service(store, clock).extract(source(GOLDEN), source_version=1)
+    items = outcome.proposal.items
+    assert [i.title for i in items] == [
+        "Dentist",
+        "Register for the Boston half marathon",
+        "Call mom",
+        "Buy milk",
+    ]
+    assert str(items[1].deadline_local_date) == "2027-03-03"
+    assert outcome.proposal.adapter_mode.value == "fixture"

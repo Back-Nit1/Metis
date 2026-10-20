@@ -126,8 +126,12 @@ class FixtureInferenceClient:
         return 0
 
 
-_MONTHS = {m: i for i, m in enumerate(
-    "jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+_MONTHS = {
+    m: i
+    for i, m in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1
+    )
+}
 _BY_DATE = re.compile(
     r"\b(?:by|before|until|on)\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b",
     re.IGNORECASE,
@@ -138,7 +142,9 @@ _EVENT_HEAD = re.compile(
     r"flight|party|class|standup)\b",
     re.IGNORECASE,
 )
-_DATE_WORD = re.compile(r"\b(today|tonight|tomorrow|day after tomorrow|next week|(?:next|this|coming)\s+\w+day)\b", re.I)
+_DATE_WORD = re.compile(
+    r"\b(today|tonight|tomorrow|day after tomorrow|next week|(?:next|this|coming)\s+\w+day)\b", re.I
+)
 _HEADER = re.compile(r"Captured on (\d{4}-\d{2}-\d{2}) in timezone (\S+?)\.\n")
 
 
@@ -163,7 +169,7 @@ def _fixture_clause_items(head: str, text: str) -> list[dict[str, Any]]:
 
     header = _HEADER.search(head)
     today = date.fromisoformat(header.group(1)) if header else None
-    tz = header.group(2) if header else None
+    tz = header.group(2) if header else ""
     anchor = None
     if today and tz:
         from metis_contracts import resolve_timezone
@@ -199,28 +205,51 @@ def _fixture_clause_items(head: str, text: str) -> list[dict[str, Any]]:
         if _REMIND.match(clause):
             at = to_instant(rel.local_date, clock, tz).instant if rel and rel.local_date and clock else None
             missing = [f for f, v in (("remind_at", at), ("remind_date", rel)) if v is None]
-            items.append({"kind": "reminder_request", "title": title,
-                          "remind_at": at.isoformat() if at else None,
-                          "local_date": rel.local_date.isoformat() if rel and rel.local_date else None,
-                          "timezone": tz if at else None,
-                          "requested_actions": ["remind_generic"],
-                          "missing_fields": missing, "evidence": evidence})
+            items.append(
+                {
+                    "kind": "reminder_request",
+                    "title": title,
+                    "remind_at": at.isoformat() if at else None,
+                    "local_date": rel.local_date.isoformat() if rel and rel.local_date else None,
+                    "timezone": tz if at else None,
+                    "requested_actions": ["remind_generic"],
+                    "missing_fields": missing,
+                    "evidence": evidence,
+                }
+            )
         elif _EVENT_HEAD.match(clause):
             at = to_instant(rel.local_date, clock, tz).instant if rel and rel.local_date and clock else None
             missing = ([] if rel else ["local_date"]) + ([] if clock else ["start_time"])
-            items.append({"kind": "event_intent", "title": title, "attendance_status": "tentative",
-                          "registration_status": "unknown",
-                          "starts_at": at.isoformat() if at else None,
-                          "local_date": rel.local_date.isoformat() if rel and rel.local_date else None,
-                          "timezone": tz if rel else None, "requested_actions": [],
-                          "missing_fields": missing, "evidence": evidence})
-        elif re.match(r"\s*(register|sign up|buy|call|email|book|pay|renew|send|pick up|schedule|finish|submit)\b", low):
+            items.append(
+                {
+                    "kind": "event_intent",
+                    "title": title,
+                    "attendance_status": "tentative",
+                    "registration_status": "unknown",
+                    "starts_at": at.isoformat() if at else None,
+                    "local_date": rel.local_date.isoformat() if rel and rel.local_date else None,
+                    "timezone": tz if rel else None,
+                    "requested_actions": [],
+                    "missing_fields": missing,
+                    "evidence": evidence,
+                }
+            )
+        elif re.match(
+            r"\s*(register|sign up|buy|call|email|book|pay|renew|send|pick up|schedule|finish|submit)\b", low
+        ):
             if deadline is None and rel and rel.local_date:
                 deadline = rel.local_date
-            items.append({"kind": "task", "title": title,
-                          "deadline_local_date": deadline.isoformat() if deadline else None,
-                          "missing_fields": [] if deadline or not low.startswith("register") else ["deadline_local_date"],
-                          "evidence": evidence})
+            items.append(
+                {
+                    "kind": "task",
+                    "title": title,
+                    "deadline_local_date": deadline.isoformat() if deadline else None,
+                    "missing_fields": []
+                    if deadline or not low.startswith("register")
+                    else ["deadline_local_date"],
+                    "evidence": evidence,
+                }
+            )
     return items
 
 

@@ -15,6 +15,7 @@ import {
   type Event as MetisEvent,
   type ItemDecision,
   type Reminder,
+  SourceKind,
   type Task,
 } from "../contracts/metis";
 import { Button } from "../components/Button";
@@ -66,6 +67,9 @@ export function CaptureScreen() {
   const [clarifications, setClarifications] = useState<ClarificationRequest[]>([]);
   const [queued, setQueued] = useState<OutboxEntry[]>([]);
 
+  const [typed, setTyped] = useState(true);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  const savedRef = useRef<HTMLHeadingElement>(null);
   const outbox = useRef(new Outbox());
   const deps = useRef(defaultDeps());
   const recorder = useRecorder(limits.max_audio_seconds);
@@ -116,6 +120,7 @@ export function CaptureScreen() {
     const value = text.trim();
     if (!value) return;
     reset();
+    setTyped(true);
     const clientCaptureId = newClientCaptureId();
 
     if (!online) {
@@ -157,6 +162,7 @@ export function CaptureScreen() {
 
   const sendAudio = async (recording: Recording) => {
     reset();
+    setTyped(false);
     setHeldAudio(recording);
     try {
       await submitCapture(
@@ -254,7 +260,25 @@ export function CaptureScreen() {
   const remaining = Math.max(0, limits.max_audio_seconds - recorder.seconds);
   const status = FLOW_STATUS[recorder.state === "recording" ? "recording" : recorder.state === "paused" ? "paused" : recorder.state === "denied" ? "mic_denied" : flow];
   const live = recorder.state === "recording" || recorder.state === "paused";
-  const step = STEP_OF[flow] ?? -1;
+  // A typed note has no transcription step; showing one would claim work that never happens.
+  const isTyped = capture ? capture.source.kind === SourceKind.TEXT : typed;
+  const steps = isTyped ? STEPS.filter((label) => label !== "Transcribing") : STEPS;
+  const stepAt = STEP_OF[flow];
+  const step = stepAt === undefined ? -1 : steps.indexOf(STEPS[stepAt] ?? "");
+  const savedCount = tasks.length + events.length + reminders.length;
+  const showSaved = flow === "saved" && savedCount > 0;
+
+  useEffect(() => {
+    if (showSaved) savedRef.current?.focus();
+  }, [showSaved]);
+
+  const captureAnother = () => {
+    reset();
+    setCapture(null);
+    setFlow("idle");
+    setText("");
+    noteRef.current?.focus();
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -308,6 +332,7 @@ export function CaptureScreen() {
             </span>
           </span>
           <textarea
+            ref={noteRef}
             className="note-field min-h-36"
             placeholder="Register for the half marathon by March 3rd, remind me at 9am on March 1…"
             value={text}
@@ -392,7 +417,7 @@ export function CaptureScreen() {
           <StatusPill status={status} />
           {step >= 0 && (
             <ol className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs" aria-label="Progress">
-              {STEPS.map((label, i) => (
+              {steps.map((label, i) => (
                 <li
                   key={label}
                   aria-current={i === step ? "step" : undefined}
@@ -512,6 +537,25 @@ export function CaptureScreen() {
           busy={correcting}
           onSave={(value) => void saveCorrection(value)}
         />
+      )}
+
+      {showSaved && (
+        <Card>
+          <h2 ref={savedRef} tabIndex={-1} className="font-serif text-lg font-semibold text-ink outline-none">
+            Saved {savedCount} item{savedCount === 1 ? "" : "s"}
+          </h2>
+          <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <a className="font-medium text-accent underline underline-offset-2" href="#/inbox">
+              Open Inbox
+            </a>
+            <a className="font-medium text-accent underline underline-offset-2" href="#/tasks">
+              Open Tasks
+            </a>
+            <Button className="sm:ml-auto" onClick={captureAnother}>
+              Capture another
+            </Button>
+          </p>
+        </Card>
       )}
 
       <CreatedRecords

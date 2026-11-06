@@ -82,6 +82,7 @@ ignore = [
 "**/local_worker.py" = ["T20"]
 "services/speech/src/metis_speech/worker.py" = ["T20"]
 "services/speech/src/metis_speech/evaluate.py" = ["T20"]
+"services/retrieval/src/metis_retrieval/evaluate.py" = ["T20"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -88,6 +88,10 @@ speech-image: ## build the owned ASR worker container
 speech-bench: ## WER + name/date/negation fidelity on the evaluation fixtures
 	$(UV) run python -m metis_speech.evaluate --fixtures services/speech/fixtures
 
+.PHONY: retrieval-bench
+retrieval-bench: ## recall/MRR/stale/leak metrics per retrieval mode on the labelled corpus
+	$(UV) run python -m metis_retrieval.evaluate --failures
+
 .PHONY: clean
 clean: ## remove local build and runtime artifacts (keeps git-tracked files)
 	rm -rf .pytest_cache .ruff_cache .mypy_cache infra/cdk.out apps/web/dist

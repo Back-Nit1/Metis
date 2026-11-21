@@ -101,14 +101,14 @@ unit metis-worker "$APP/.venv/bin/python -m metis_pipeline.local_worker"
 unit metis-speech "$APP/.venv/bin/python -m metis_speech.server --port 8787"
 unit metis-web "/usr/bin/python3 -m http.server 5173 --bind 127.0.0.1 --directory $APP/apps/web/dist"
 
-# Public edge: TLS + reverse proxy to the loopback API only.
-cat >/etc/caddy/Caddyfile <<CADDY
-$HOST {
-	@docs path /docs* /redoc* /openapi.json
-	respond @docs 404
-	reverse_proxy 127.0.0.1:8000
-}
-CADDY
+# Public edge: TLS + health-checked load balancing across the configured API
+# endpoints. A single-VM install defaults to the loopback API. Additional
+# private API nodes can be supplied as comma- or space-separated host:port
+# entries in METIS_API_UPSTREAMS when invoking this script.
+HOST="$HOST" \
+  METIS_API_UPSTREAMS="${METIS_API_UPSTREAMS:-127.0.0.1:8000}" \
+  "$APP/ops/gcp/render-caddyfile.sh" >/etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl enable -q caddy
 systemctl reload-or-restart caddy
 
@@ -117,6 +117,18 @@ chown -R root:root "$APP" "$MODELS" && chmod -R a+rX "$APP" "$MODELS"
 systemctl daemon-reload
 systemctl enable -q metis-api metis-worker metis-speech metis-web
 systemctl restart metis-api metis-worker metis-speech metis-web
+
+# Host CPU/memory metrics plus systemd journal logs. The VM service account is
+# provisioned by configure-monitoring.sh with only metric/log writer roles.
+if ! dpkg-query -W -f='${Status}' google-cloud-ops-agent 2>/dev/null | grep -q 'install ok installed'; then
+  curl -fsSLo /tmp/add-google-cloud-ops-agent-repo.sh \
+    https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+  bash /tmp/add-google-cloud-ops-agent-repo.sh --also-install
+fi
+install -m 0644 "$APP/ops/gcp/monitoring/ops-agent.yaml" \
+  /etc/google-cloud-ops-agent/config.yaml
+systemctl enable -q google-cloud-ops-agent
+systemctl restart google-cloud-ops-agent
 
 KEY="$(sed -n 's/^METIS_DESKTOP_AUTH_SECRET=//p' /etc/metis-api.env)"
 for _ in $(seq 30); do

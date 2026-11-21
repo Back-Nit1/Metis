@@ -20,10 +20,12 @@ tools: hold a key, speak, cleaned text is inserted into the focused app.
    `provisional: true`. Nothing creates tasks, reminders or sources from a
    partial. Spec's "no continuous cloud transcription" still holds: audio is
    sent only between key-down and key-up, never before, never idle.
-2. **Cleanup is deterministic** (`metis_speech/polish.py`): fillers, case,
-   terminal punctuation, the user's dictionary, snippets, `scratch that`,
-   `new line`/`new paragraph`, per-app style. No dates, names or negation are
-   rewritten. Raw ASR text is returned alongside.
+2. **Cleanup is deterministic by default** (`metis_speech/polish.py`): fillers,
+   case, terminal punctuation, the user's dictionary, snippets, `scratch that`,
+   `new line`/`new paragraph`, per-app style. A local Ollama cleanup pass may be
+   explicitly enabled with `METIS_FLOW_MODEL`; it runs only on the final result,
+   is labelled as model output, and falls back on timeout/schema/semantic-guard
+   failure. Raw ASR and deterministic text are both returned alongside.
 3. **Settings are `Preferences.flow`** (`FlowSettings` in contracts): same
    revision/409 rules, no new route. Client sends the settings with session
    create; the server keeps nothing between sessions.
@@ -41,9 +43,11 @@ tools: hold a key, speak, cleaned text is inserted into the focused app.
   a Dictate shortcut, chunk streaming from `audio.rs`, paste-and-restore
   clipboard insertion, and macOS Accessibility permission handling. Owner:
   desktop worker; protocol above is the contract.
-- **Spoken self-correction** ("tomorrow, no, wait, Friday") and **Command
-  Mode** (rewrite selected text) need a model. If built, they are opt-in, go
-  through budget reserve/settle (rule 7), and are labelled as model output.
+- **Command Mode** (rewrite selected text) is not built. The optional local
+  cleanup pass can apply explicit spoken self-corrections, but it cannot create
+  tasks/reminders and does not change the authoritative capture transcript.
+  Any future paid cleanup provider must go through budget reserve/settle (rule
+  7); model output is always labelled.
 - **Context awareness beyond app name.** Only the focused app's name selects a
   style. Reading surrounding text is a privacy decision, not an implementation
   detail, and is not enabled.

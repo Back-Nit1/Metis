@@ -42,6 +42,8 @@ from typing import Any
 from metis_contracts import HTTP_STATUS, ErrorCode, FlowSettings, MetisError, settings
 
 from .flow import Sessions, wav_bytes
+from .model_polish import OllamaPolisher
+from .model_polish import from_env as model_polisher_from_env
 from .polish import polish
 
 log = logging.getLogger("metis.speech.server")
@@ -58,7 +60,14 @@ FINISH_WAIT_SECONDS = 30  # a partial decode may hold the lock when the key is r
 class SpeechServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, transcriber: Any, secret: str, port: int = 0) -> None:
+    def __init__(
+        self,
+        transcriber: Any,
+        secret: str,
+        port: int = 0,
+        *,
+        model_polisher: OllamaPolisher | None = None,
+    ) -> None:
         if len(secret) < MIN_SECRET_LEN:
             raise ValueError(f"METIS_SPEECH_SECRET must be at least {MIN_SECRET_LEN} characters")
         super().__init__(("127.0.0.1", port), _Handler)  # loopback only; 0 = OS-assigned
@@ -69,6 +78,7 @@ class SpeechServer(ThreadingHTTPServer):
         self.busy = threading.Lock()  # one decode at a time
         self.ready_event = threading.Event()
         self.flow = Sessions(settings().limits.max_audio_seconds)
+        self.model_polisher = model_polisher
 
     def load_model(self) -> None:
         try:
@@ -276,13 +286,40 @@ class _Handler(BaseHTTPRequestHandler):
                     "local" if meta.get("adapter_mode") == "cloud" else meta["adapter_mode"]
                 )
                 result = polish(text, s.cfg, app=s.app)
+                insert_text = result.text
+                applied = list(result.applied)
+                cleanup: dict[str, Any] = {
+                    "mode": "deterministic",
+                    "source": "final_transcript",
+                    "model_id": None,
+                    "fallback": False,
+                }
+                if self.server.model_polisher is not None and result.text:
+                    try:
+                        model_result = self.server.model_polisher.polish(
+                            raw_text=text,
+                            deterministic_text=result.text,
+                            app=s.app,
+                            style=result.style,
+                            protected_terms=self._terms(s.cfg),
+                        )
+                        insert_text = model_result.text
+                        applied.append("model_cleanup")
+                        cleanup.update(mode="model", model_id=model_result.model_id)
+                    except (RuntimeError, ValueError):
+                        # Text/audio must never appear in logs. A failed optional
+                        # cleanup pass degrades to the deterministic result.
+                        log.warning("model dictation cleanup rejected; using deterministic fallback")
+                        cleanup["fallback"] = True
                 return self._send(
                     200,
                     {
-                        "text": result.text,
+                        "text": insert_text,
                         "raw_text": text,
+                        "deterministic_text": result.text,
                         "style": result.style,
-                        "applied": result.applied,
+                        "applied": applied,
+                        "cleanup": cleanup,
                         "no_speech": not text,
                         "segments": [g.model_dump(mode="json") for g in segments],
                         "speech": meta,
@@ -368,7 +405,12 @@ def main(argv: list[str] | None = None) -> int:
     from .transcriber import FasterWhisperTranscriber
 
     try:
-        server = SpeechServer(FasterWhisperTranscriber(), secret, args.port)
+        server = SpeechServer(
+            FasterWhisperTranscriber(),
+            secret,
+            args.port,
+            model_polisher=model_polisher_from_env(),
+        )
     except ValueError as exc:
         sys.stderr.write(f"{exc}\n")
         return 2

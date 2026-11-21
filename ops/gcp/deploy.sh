@@ -18,6 +18,12 @@ PROJECT="${PROJECT:?set PROJECT to the GCP project id}"
 REGION="${REGION:-us-central1}"
 ZONE="${ZONE:-$REGION-a}"
 VM="${VM:-metis}"
+OBS_SA_ID="${OBS_SA_ID:-metis-vm-observability}"
+OBS_SA="$OBS_SA_ID@$PROJECT.iam.gserviceaccount.com"
+# Comma- or whitespace-separated private API endpoints for Caddy. The default
+# is the API process on this VM; add internal endpoints when API nodes are
+# provisioned separately.
+METIS_API_UPSTREAMS="${METIS_API_UPSTREAMS:-127.0.0.1:8000}"
 # ponytail: e2-medium (2 shared vCPU, 4 GB) fits small.en int8 at concurrency 1;
 # move to e2-standard-2+ if transcription latency or a larger model demands it.
 MACHINE="${MACHINE:-e2-medium}"
@@ -28,7 +34,24 @@ ensure() { # ensure <describe args...> -- <create args...>
   g "${d[@]}" >/dev/null 2>&1 || g "$@"
 }
 
-g services enable compute.googleapis.com iap.googleapis.com
+g services enable compute.googleapis.com iap.googleapis.com logging.googleapis.com monitoring.googleapis.com
+
+if ! g iam service-accounts describe "$OBS_SA" >/dev/null 2>&1; then
+  g iam service-accounts create "$OBS_SA_ID" --display-name="Metis VM observability"
+fi
+for role in roles/logging.logWriter roles/monitoring.metricWriter; do
+  for attempt in $(seq 1 10); do
+    if g projects add-iam-policy-binding "$PROJECT" \
+      --member="serviceAccount:$OBS_SA" --role="$role" --condition=None >/dev/null; then
+      break
+    fi
+    if [ "$attempt" -eq 10 ]; then
+      echo "observability service account IAM did not propagate after 10 attempts" >&2
+      exit 1
+    fi
+    sleep 3
+  done
+done
 
 ensure compute networks describe metis -- \
   compute networks create metis --subnet-mode=custom
@@ -54,8 +77,18 @@ ensure compute instances describe "$VM" --zone "$ZONE" -- \
   compute instances create "$VM" --zone "$ZONE" --machine-type "$MACHINE" \
   --image-family ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud \
   --boot-disk-size 30GB --boot-disk-type pd-balanced \
-  --subnet metis --no-address --no-service-account --no-scopes --tags metis-https \
+  --subnet metis --no-address --service-account "$OBS_SA" --scopes cloud-platform \
+  --tags metis-https --provisioning-model STANDARD --no-restart-on-failure \
+  --graceful-shutdown --graceful-shutdown-max-duration=2m \
   --shielded-secure-boot --metadata enable-oslogin=TRUE
+
+attached_sa="$(g compute instances describe "$VM" --zone "$ZONE" \
+  --format='value(serviceAccounts[0].email)')"
+if [ "$attached_sa" != "$OBS_SA" ]; then
+  echo "VM service account is '$attached_sa', expected '$OBS_SA'." >&2
+  echo "Run ops/gcp/configure-monitoring.sh, stop the VM, attach that account, and retry." >&2
+  exit 1
+fi
 
 g compute instances add-tags "$VM" --zone "$ZONE" --tags metis-https >/dev/null
 IP="$(g compute addresses describe metis --region "$REGION" --format='value(address)')"
@@ -64,6 +97,10 @@ if [ -z "$(g compute instances describe "$VM" --zone "$ZONE" --format='value(net
 fi
 HOST="${IP//./-}.sslip.io"
 export VITE_METIS_API="https://$HOST"
+
+# Validate the edge inputs before copying or changing anything on the VM.
+HOST="$HOST" METIS_API_UPSTREAMS="$METIS_API_UPSTREAMS" \
+  ops/gcp/render-caddyfile.sh >/dev/null
 
 # Build the web client from the same commit, in a clean export.
 stage="$(mktemp -d)"; trap 'rm -rf "$stage"' EXIT
@@ -77,7 +114,9 @@ for _ in $(seq 20); do ssh_ready && break; sleep 6; done
 g compute scp --zone "$ZONE" --tunnel-through-iap "$stage.tar.gz" "$VM:/tmp/metis.tar.gz"
 g compute scp --zone "$ZONE" --tunnel-through-iap ops/gcp/vm-setup.sh "$VM:/tmp/vm-setup.sh"
 rm -f "$stage.tar.gz"
-g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "sudo env HOST=$HOST bash /tmp/vm-setup.sh"
+printf -v VM_SETUP_COMMAND 'sudo env HOST=%q METIS_API_UPSTREAMS=%q bash /tmp/vm-setup.sh' \
+  "$HOST" "$METIS_API_UPSTREAMS"
+g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "$VM_SETUP_COMMAND"
 
 cat <<EOF
 

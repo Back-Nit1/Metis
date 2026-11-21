@@ -21,6 +21,7 @@ from metis_contracts import CONTRACT_VERSION, ErrorBody, ErrorCode, MetisError, 
 
 from .deps import build_adapters
 from .guards import BodyLimitMiddleware, HostGuardMiddleware, clean_correlation_id
+from .rate_limit import ConnectionRateLimitMiddleware
 from .routes import captures, notifications, plans, projects, reminders, tasks
 
 log = logging.getLogger("metis.api")
@@ -75,6 +76,8 @@ def create_app() -> FastAPI:
     )
 
     # Outermost last: Host is checked first, then the body is bounded as it streams.
+    # The connection limiter runs before route/auth code and adds RateLimit fields.
+    app.add_middleware(ConnectionRateLimitMiddleware)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(HostGuardMiddleware)
 

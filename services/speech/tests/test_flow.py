@@ -97,6 +97,13 @@ def test_dictation_roundtrip(server: SpeechServer) -> None:
     assert status == 200
     assert done["text"] == "Hello Cerno."
     assert done["raw_text"] == "um hello sirno"
+    assert done["deterministic_text"] == "Hello Cerno."
+    assert done["cleanup"] == {
+        "mode": "deterministic",
+        "source": "final_transcript",
+        "model_id": None,
+        "fallback": False,
+    }
     assert done["speech"]["adapter_mode"] == "local"
     assert call(server, "POST", f"{base}/finish")[0] == 404  # session consumed
 

@@ -21,6 +21,7 @@ mistakes does not update any model weights.
 | `server.py` | warm loopback HTTP server (`/v1/transcribe`, `/v1/ready`, `/v1/flow/sessions…`), bearer secret, one decode at a time, `--port` for a fixed port |
 | `flow.py` | hold-to-dictate sessions: in-memory PCM buffer, one live session, size cap |
 | `polish.py` | deterministic dictation cleanup: fillers, case, dictionary, snippets, per-app style |
+| `model_polish.py` | optional final-only Ollama cleanup with bounded I/O, drift guards and deterministic fallback |
 | `remote.py` | client used by the API/worker to reach the warm server |
 | `worker.py` | container entrypoint: one job, persist the result, exit with a category-specific code |
 | `evaluate.py` | WER plus separate name / date / negation fidelity, dev vs held-out splits |
@@ -35,13 +36,22 @@ Audio is raw PCM16 mono 16 kHz, held in memory only, never logged.
 | --- | --- |
 | `POST /v1/flow/sessions` `{language?, app?, settings?}` | `{session_id, max_seconds}`; a new session supersedes an abandoned one |
 | `POST /v1/flow/sessions/{id}/audio` raw chunk | `{seconds, partial}`; `partial.provisional` is always `true`, HUD-only |
-| `POST /v1/flow/sessions/{id}/finish` | `{text, raw_text, applied, no_speech, segments, speech}`; the only insertable text |
+| `POST /v1/flow/sessions/{id}/finish` | `{text, raw_text, deterministic_text, cleanup, applied, no_speech, segments, speech}`; the only insertable text |
 | `DELETE /v1/flow/sessions/{id}` | discard the audio |
 
 `settings` is a `FlowSettings` (contracts). `polish` never changes dates, names
 or negation; `raw_text` is returned beside the polished text, and an empty
 recording sets `no_speech` and inserts nothing. See
 `docs/architecture/0005-flow-dictation.md`.
+
+An optional local cleanup pass is enabled only when `METIS_FLOW_MODEL` names an
+already-installed Ollama model. `METIS_FLOW_MODEL_ENDPOINT` defaults to
+`http://127.0.0.1:11434` and is restricted to loopback; Metis never pulls a
+model at request time. The pass runs once after final ASR, never on partials.
+Its output is labelled by `cleanup.mode=model`; `raw_text` and
+`deterministic_text` remain in the result. Any timeout, malformed response, new
+number/address, changed negation, or removed dictionary term falls back to the
+deterministic text and sets `cleanup.fallback=true`.
 
 ## Why the duration check is on decoded audio
 

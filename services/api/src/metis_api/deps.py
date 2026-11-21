@@ -10,8 +10,6 @@ import hashlib
 import ipaddress
 import logging
 import re
-import threading
-import time
 from dataclasses import dataclass, field
 from typing import Annotated, Any
 
@@ -32,6 +30,7 @@ from metis_contracts.ports import (
 
 from .auth import Principal, principal_from_header
 from .guards import clean_correlation_id
+from .rate_limit import SlidingWindowRateLimiter as RateLimiter
 
 _FINGERPRINT_FIELD = "__fingerprint"
 _IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9_.:=-]{1,128}")
@@ -143,41 +142,6 @@ def build_adapters() -> Adapters:
     except ImportError:
         log.warning("metis_retrieval is unavailable; search will report degraded")
     return adapters
-
-
-class RateLimiter:
-    """Fixed-window limiter: one counter per (key, window), reset at each boundary.
-
-    ``check_all`` tests every rule before counting any, so a request refused by
-    the hourly rule does not also burn a slot in the minute window.
-
-    ponytail: in-process. Enough for a personal-scale API; a shared limiter
-    belongs at the API gateway, not in this process.
-    """
-
-    def __init__(self) -> None:
-        self._windows: dict[tuple[str, int], tuple[int, int]] = {}  # (key, seconds) -> (window index, count)
-        self._lock = threading.Lock()
-
-    def check_all(self, rules: list[tuple[str, int, int]]) -> None:
-        """``rules`` is ``[(key, limit, window_seconds), ...]``."""
-        now = time.monotonic()
-        with self._lock:
-            slots = [((key, seconds), limit, seconds, int(now // seconds)) for key, limit, seconds in rules]
-            for slot, limit, seconds, index in slots:
-                current, count = self._windows.get(slot, (index, 0))
-                if current == index and count >= limit:
-                    raise MetisError(
-                        ErrorCode.RATE_LIMITED,
-                        "too many requests",
-                        retry_after_seconds=int((index + 1) * seconds - now) + 1,
-                    )
-            for slot, _, _, index in slots:
-                current, count = self._windows.get(slot, (index, 0))
-                self._windows[slot] = (index, count + 1 if current == index else 1)
-
-    def check(self, key: str, *, limit: int, window_seconds: int = 60) -> None:
-        self.check_all([(key, limit, window_seconds)])
 
 
 _limiter = RateLimiter()

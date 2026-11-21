@@ -239,7 +239,7 @@ def test_search_has_its_own_ceiling(client, monkeypatch):
     assert codes[10] == 429
 
 
-# --- fixture identity is loopback-only; fixed-window limits ------------------- #
+# --- fixture identity is loopback-only; sliding-window limits ----------------- #
 
 
 def _client_from(adapters, peer: str):
@@ -267,27 +267,33 @@ def test_fixture_identity_is_refused_for_a_lan_caller(adapters):
         local.__exit__(None, None, None)
 
 
-def test_rate_limiter_is_fixed_window_and_resets_at_the_boundary(monkeypatch):
+def test_rate_limiter_is_a_true_sliding_window(monkeypatch):
     import metis_api.deps as deps
+    import metis_api.rate_limit as rate_limit
 
-    now = [120.0]  # start of a 60 s window
-    monkeypatch.setattr(deps.time, "monotonic", lambda: now[0])
+    now = [120.0]
+    monkeypatch.setattr(rate_limit.time, "monotonic", lambda: now[0])
     limiter = deps.RateLimiter()
-    for _ in range(3):
-        limiter.check("k", limit=3)
+    limiter.check("k", limit=3)
+    now[0] = 121.0
+    limiter.check("k", limit=3)
     now[0] = 179.0
+    limiter.check("k", limit=3)
     with pytest.raises(MetisError) as refused:
         limiter.check("k", limit=3)
-    assert refused.value.retry_after_seconds == 2  # until 180, not 60 s after the first hit
-    now[0] = 180.0  # new window: the full allowance is back at once
-    for _ in range(3):
+    assert refused.value.retry_after_seconds == 1
+    now[0] = 180.0
+    # Only the request at 120 expires; this is not a full boundary reset.
+    assert limiter.check("k", limit=3).remaining == 0
+    with pytest.raises(MetisError):
         limiter.check("k", limit=3)
 
 
 def test_every_rule_must_pass_and_a_refusal_counts_nothing(monkeypatch):
     import metis_api.deps as deps
+    import metis_api.rate_limit as rate_limit
 
-    monkeypatch.setattr(deps.time, "monotonic", lambda: 0.0)
+    monkeypatch.setattr(rate_limit.time, "monotonic", lambda: 0.0)
     limiter = deps.RateLimiter()
     rules = [("user:a", 10, 60), ("user:a", 2, 3600), ("global", 100, 60)]
     limiter.check_all(rules)
@@ -295,8 +301,45 @@ def test_every_rule_must_pass_and_a_refusal_counts_nothing(monkeypatch):
     with pytest.raises(MetisError):
         limiter.check_all(rules)  # hourly rule refuses
     # The refused call did not burn a minute slot or a global slot.
-    assert limiter._windows[("user:a", 60)] == (0, 2)
-    assert limiter._windows[("global", 60)] == (0, 2)
+    assert len(limiter._events[("user:a", 60)]) == 2
+    assert len(limiter._events[("global", 60)]) == 2
+
+
+def test_connection_limit_is_100_per_rolling_minute_and_health_is_exempt(adapters, monkeypatch):
+    import metis_api.rate_limit as rate_limit
+
+    now = [100.0]
+    monkeypatch.setattr(rate_limit.time, "monotonic", lambda: now[0])
+    client = _client_from(adapters, "203.0.113.7")
+    try:
+        for index in range(100):
+            response = client.get("/")
+            assert response.status_code == 200
+            assert response.headers["ratelimit-limit"] == "100"
+            assert response.headers["ratelimit-remaining"] == str(99 - index)
+        refused = client.get("/")
+        assert refused.status_code == 429
+        assert refused.headers["retry-after"] == "60"
+        assert refused.headers["ratelimit-remaining"] == "0"
+        assert refused.json()["code"] == "rate_limited"
+        # Monitoring remains able to observe the service while a client is limited.
+        assert client.get("/v1/health").status_code == 200
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_forwarded_client_is_only_used_from_a_trusted_proxy():
+    import ipaddress
+
+    from metis_api.rate_limit import _client_identity
+
+    trusted = (ipaddress.ip_network("127.0.0.0/8"),)
+    header = [(b"x-forwarded-for", b"198.51.100.9, 203.0.113.8")]
+    direct = {"client": ("192.0.2.1", 443), "headers": header}
+    proxied = {"client": ("127.0.0.1", 443), "headers": header}
+    assert _client_identity(direct, trusted) == "192.0.2.1"
+    # The nearest untrusted hop wins, so a forged leftmost value cannot evade limits.
+    assert _client_identity(proxied, trusted) == "203.0.113.8"
 
 
 def test_global_ceiling_limits_all_users_together(client, monkeypatch):

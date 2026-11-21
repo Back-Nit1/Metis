@@ -27,6 +27,7 @@ def health(request: Request) -> HealthResponse:
         mode=cfg.mode.value,
         adapters=described,
         contract_version=CONTRACT_VERSION,
+        build=cfg.build,
     )
 
 

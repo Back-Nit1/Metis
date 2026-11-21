@@ -4,6 +4,7 @@
 # loopback-only services. Nothing listens on a routable interface.
 set -euo pipefail
 : "${HOST:?set HOST (<ip>.sslip.io)}"
+: "${METIS_BUILD:?set METIS_BUILD to the deployed git commit}"
 
 APP=/opt/metis
 DATA=/var/lib/metis
@@ -44,6 +45,7 @@ fi
 cat >/etc/metis.env <<EOF
 METIS_MODE=local
 METIS_ENV=dev
+METIS_BUILD=$METIS_BUILD
 METIS_ALLOW_FIXTURE_IDENTITY=false
 METIS_FIXTURE_USER_ID=demo_authenticated_subject
 METIS_DESKTOP_IDENTITY_PATH=$DATA/install_id

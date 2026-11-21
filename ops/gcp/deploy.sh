@@ -27,6 +27,7 @@ METIS_API_UPSTREAMS="${METIS_API_UPSTREAMS:-127.0.0.1:8000}"
 # ponytail: e2-medium (2 shared vCPU, 4 GB) fits small.en int8 at concurrency 1;
 # move to e2-standard-2+ if transcription latency or a larger model demands it.
 MACHINE="${MACHINE:-e2-medium}"
+BUILD_SHA="$(git rev-parse HEAD)"
 
 g() { gcloud --project "$PROJECT" --quiet "$@"; }
 ensure() { # ensure <describe args...> -- <create args...>
@@ -114,8 +115,8 @@ for _ in $(seq 20); do ssh_ready && break; sleep 6; done
 g compute scp --zone "$ZONE" --tunnel-through-iap "$stage.tar.gz" "$VM:/tmp/metis.tar.gz"
 g compute scp --zone "$ZONE" --tunnel-through-iap ops/gcp/vm-setup.sh "$VM:/tmp/vm-setup.sh"
 rm -f "$stage.tar.gz"
-printf -v VM_SETUP_COMMAND 'sudo env HOST=%q METIS_API_UPSTREAMS=%q bash /tmp/vm-setup.sh' \
-  "$HOST" "$METIS_API_UPSTREAMS"
+printf -v VM_SETUP_COMMAND 'sudo env HOST=%q METIS_API_UPSTREAMS=%q METIS_BUILD=%q bash /tmp/vm-setup.sh' \
+  "$HOST" "$METIS_API_UPSTREAMS" "$BUILD_SHA"
 g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "$VM_SETUP_COMMAND"
 
 cat <<EOF

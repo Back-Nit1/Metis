@@ -273,6 +273,7 @@ class AwsConfig:
 class Settings:
     mode: Mode = field(default_factory=lambda: Mode(_env("METIS_MODE", "local") or "local"))
     environment: Literal["dev", "staging", "prod"] = field(default_factory=_env_environment)
+    build: str | None = field(default_factory=lambda: _env("METIS_BUILD"))
     allow_fixture_identity: bool = field(
         default_factory=lambda: _env_bool("METIS_ALLOW_FIXTURE_IDENTITY", True)
     )

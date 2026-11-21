@@ -39,6 +39,7 @@ def test_health_reports_fixture_adapters_honestly(client):
     assert body["adapters"]["inference"] == "fixture"
     assert body["adapters"]["transcriber"] == "fixture"
     assert body["contract_version"] == 1
+    assert body["build"] is None
 
 
 def test_limits_are_published_so_the_browser_enforces_the_same_numbers(client):

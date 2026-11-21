@@ -1,4 +1,5 @@
 {
+  "etag": "__DASHBOARD_ETAG__",
   "displayName": "Metis Operations",
   "mosaicLayout": {
     "columns": 12,

@@ -92,16 +92,21 @@ ensure_policy "Metis service errors" \
   --duration=0s --if='> 0' --trigger-count=1 --combiner=OR \
   --documentation="Caddy or a Metis systemd unit logged a failure/error."
 
+dashboard_name="$(g monitoring dashboards list \
+  --filter='displayName="Metis Operations"' --format='value(name)' --limit=1)"
 dashboard_template="$GCP_DIR/monitoring/dashboard.json"
 dashboard_config="$(mktemp)"
 trap 'rm -f "$dashboard_config"' EXIT
-sed -e "s/__INSTANCE_ID__/$instance_id/g" -e "s/__UPTIME_CHECK_ID__/$uptime_id/g" \
-  "$dashboard_template" >"$dashboard_config"
-dashboard_name="$(g monitoring dashboards list \
-  --filter='displayName="Metis Operations"' --format='value(name)' --limit=1)"
 if [ -z "$dashboard_name" ]; then
+  sed -e '/__DASHBOARD_ETAG__/d' \
+    -e "s/__INSTANCE_ID__/$instance_id/g" -e "s/__UPTIME_CHECK_ID__/$uptime_id/g" \
+    "$dashboard_template" >"$dashboard_config"
   g monitoring dashboards create --config-from-file="$dashboard_config"
 else
+  dashboard_etag="$(g monitoring dashboards describe "$dashboard_name" --format='value(etag)')"
+  sed -e "s/__DASHBOARD_ETAG__/$dashboard_etag/g" \
+    -e "s/__INSTANCE_ID__/$instance_id/g" -e "s/__UPTIME_CHECK_ID__/$uptime_id/g" \
+    "$dashboard_template" >"$dashboard_config"
   g monitoring dashboards update "$dashboard_name" --config-from-file="$dashboard_config"
 fi
 

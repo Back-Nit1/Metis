@@ -63,7 +63,7 @@ if [ -z "$(g compute instances describe "$VM" --zone "$ZONE" --format='value(net
   g compute instances add-access-config "$VM" --zone "$ZONE" --access-config-name external-nat --address "$IP"
 fi
 HOST="${IP//./-}.sslip.io"
-export VITE_METIS_API="https://$HOST" VITE_METIS_ACCESS_KEY=required
+export VITE_METIS_API="https://$HOST"
 
 # Build the web client from the same commit, in a clean export.
 stage="$(mktemp -d)"; trap 'rm -rf "$stage"' EXIT
@@ -82,7 +82,7 @@ g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "sudo env HOST
 cat <<EOF
 
 Deployed: https://$HOST  (API; the UI is ops/vercel/deploy.sh)
-Access key (paste it into the UI once; never commit or share it):
+Access key (set it only as the Vercel env var METIS_ACCESS_KEY; never paste it into a browser, commit or share it):
   gcloud --project $PROJECT compute ssh $VM --zone $ZONE --tunnel-through-iap --command 'sudo cat /etc/metis-api.env'
 Dictation secret (loopback :8787, reached only through an IAP tunnel):
   gcloud --project $PROJECT compute ssh $VM --zone $ZONE --tunnel-through-iap --command 'sudo cat /etc/metis-speech.env'

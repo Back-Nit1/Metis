@@ -49,9 +49,10 @@ What is **not** done or **not verified**, stated plainly:
   duplicate registration task, project attachment of captured notes).
 - **Desktop packaging** is unsigned, un-notarized, one target triple, ~100 MB.
 - **Fixture extraction** is the only extraction in local mode.
-- **Single shared access key, not accounts.** The public API accepts one
-  random key (`/etc/metis-api.env` on the VM). Anyone holding it has full access
-  to the one data set; there is no per-user identity, rotation UI or lockout.
+- **One login, not accounts.** The Vercel UI has a single username/password
+  (checked at the edge proxy); the VM API accepts one random key
+  (`/etc/metis-api.env`) that only the proxy holds. There is no per-user
+  identity or rotation UI; sign-in attempts are rate limited per client.
 - **Dictation is not usable end to end.** Desktop shortcut, text insertion, the
   settings UI, spoken self-correction and Command Mode are not built.
 
@@ -118,9 +119,12 @@ PROJECT=<gcp-project-id> ops/vercel/deploy.sh   # build the UI against that host
 ```
 
 `deploy.sh` prints the commands to read the access key and the dictation secret
-(both are generated on the VM and never committed). The Vercel bundle holds the
-API URL and a "key required" flag; the UI asks for the key once per tab and
-keeps it in sessionStorage. Dictation (`:8787`) is reached only through an IAP
+(both are generated on the VM and never committed). The access key goes only into
+the Vercel env var `METIS_ACCESS_KEY`; the browser never sees it. The UI asks for
+a username and password (`METIS_LOGIN_USER`, `METIS_LOGIN_PASSWORD_HASH` from
+`node ops/vercel/hash-password.mjs`, `METIS_SESSION_SECRET`; see
+`ops/vercel/deploy.sh`), and the proxy forwards a request, adding the key, only
+when it carries a valid signed HttpOnly session cookie. Dictation (`:8787`) is reached only through an IAP
 tunnel. Idle cost drops to disk plus the static IP after
 `gcloud compute instances stop metis --zone us-central1-a`; teardown is
 deleting the project. Rotate the key by deleting `/etc/metis-api.env` and

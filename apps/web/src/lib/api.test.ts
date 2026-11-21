@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ErrorCode } from "../contracts/metis";
-import { API_BASE, ApiError, DesktopUnavailableError, OfflineError, api, setAuthToken, setUnauthenticatedHandler } from "./api";
+import { API_BASE, ApiError, DesktopUnavailableError, OfflineError, api, setAuthToken, setCookieSession, setUnauthenticatedHandler } from "./api";
 import { connectDesktop, desktopBase, resetDesktopForTests } from "./desktop";
 import { Outbox } from "./outbox";
 import { resetClientData } from "./reset";
@@ -240,6 +240,18 @@ describe("exports, plans and sessions", () => {
     setAuthToken("t");
     await api.today().catch(() => undefined);
     expect(handler).toHaveBeenCalledTimes(1);
+    setUnauthenticatedHandler(null);
+  });
+
+  it("tells the session layer when a proxy-login (cookie) request is refused", async () => {
+    const handler = vi.fn();
+    setAuthToken(null);
+    setUnauthenticatedHandler(handler);
+    setCookieSession(true);
+    mockFetch(() => json({ code: ErrorCode.UNAUTHENTICATED, message: "sign in required" }, 401));
+    await api.today().catch(() => undefined);
+    expect(handler).toHaveBeenCalledTimes(1);
+    setCookieSession(false);
     setUnauthenticatedHandler(null);
   });
 });

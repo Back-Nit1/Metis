@@ -44,7 +44,7 @@ fi
 cat >/etc/metis.env <<EOF
 METIS_MODE=local
 METIS_ENV=dev
-METIS_ALLOW_FIXTURE_IDENTITY=true
+METIS_ALLOW_FIXTURE_IDENTITY=false
 METIS_FIXTURE_USER_ID=demo_authenticated_subject
 METIS_DESKTOP_IDENTITY_PATH=$DATA/install_id
 METIS_ALLOWED_HOSTS=$HOST
@@ -59,7 +59,9 @@ HF_HUB_OFFLINE=1
 EOF
 
 # Single-user access key. With METIS_DESKTOP_AUTH_SECRET set the API rejects any
-# request whose bearer is not exactly this value and ignores fixture identity.
+# request whose bearer is not exactly this value. The file is a required
+# EnvironmentFile and fixture identity is off, so a missing key stops the
+# services instead of silently opening the API.
 [ -f /etc/metis-api.env ] || (
   umask 077
   echo "METIS_DESKTOP_AUTH_SECRET=$(head -c 36 /dev/urandom | base64 | tr -d '=+/\n')" >/etc/metis-api.env
@@ -82,7 +84,7 @@ User=metis
 WorkingDirectory=$APP
 EnvironmentFile=/etc/metis.env
 EnvironmentFile=-/etc/metis-speech.env
-EnvironmentFile=-/etc/metis-api.env
+EnvironmentFile=/etc/metis-api.env
 ExecStart=$2
 Restart=on-failure
 NoNewPrivileges=true

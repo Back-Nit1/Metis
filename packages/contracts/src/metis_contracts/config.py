@@ -115,7 +115,14 @@ class Limits:
     daily_micro_usd: int = field(default_factory=lambda: _env_int("METIS_DAILY_MICRO_USD", 500_000))
     monthly_micro_usd: int = field(default_factory=lambda: _env_int("METIS_MONTHLY_MICRO_USD", 10_000_000))
 
+    # Fixed-window limits, all enforced on every authenticated request: per
+    # user per minute, per user per hour, and one ceiling for the whole process
+    # (a shared key behind a proxy is one user, so this bounds the box itself).
     api_rate_per_minute: int = field(default_factory=lambda: _env_int("METIS_RATE_PER_MINUTE", 120))
+    api_rate_per_hour: int = field(default_factory=lambda: _env_int("METIS_RATE_PER_HOUR", 2000))
+    api_rate_global_per_minute: int = field(
+        default_factory=lambda: _env_int("METIS_RATE_GLOBAL_PER_MINUTE", 600)
+    )
 
     source_retention_days: int = field(default_factory=lambda: _env_int("METIS_SOURCE_RETENTION_DAYS", 30))
 

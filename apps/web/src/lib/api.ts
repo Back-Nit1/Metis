@@ -124,6 +124,11 @@ export function setAuthToken(token: string | null): void {
 
 /** Called when a signed-in request is refused as unauthenticated (expired or revoked session). */
 let onUnauthenticated: (() => void) | null = null;
+/** True while a proxy login cookie (not a bearer) is what authenticates this tab. */
+let cookieSession = false;
+export function setCookieSession(on: boolean): void {
+  cookieSession = on;
+}
 export function setUnauthenticatedHandler(handler: (() => void) | null): void {
   onUnauthenticated = handler;
 }
@@ -177,7 +182,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const text = await response.text();
   const parsed: unknown = text ? JSON.parse(text) : null;
   if (!response.ok) {
-    if (response.status === 401 && authToken) onUnauthenticated?.();
+    if (response.status === 401 && (authToken || cookieSession)) onUnauthenticated?.();
     throw new ApiError(response.status, (parsed ?? {
       code: ErrorCode.INTERNAL,
       message: `the server returned ${response.status}`,
@@ -357,7 +362,7 @@ export const api = {
       throw new OfflineError(cause);
     }
     if (!response.ok) {
-      if (response.status === 401 && authToken) onUnauthenticated?.();
+      if (response.status === 401 && (authToken || cookieSession)) onUnauthenticated?.();
       const text = await response.text();
       let body: ErrorBody;
       try {

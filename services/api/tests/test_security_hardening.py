@@ -237,3 +237,73 @@ def test_search_has_its_own_ceiling(client, monkeypatch):
     codes = [client.post("/v1/search", json={"query": "q"}).status_code for _ in range(12)]
     assert codes[:10] == [200] * 10
     assert codes[10] == 429
+
+
+# --- fixture identity is loopback-only; fixed-window limits ------------------- #
+
+
+def _client_from(adapters, peer: str):
+    from fastapi.testclient import TestClient
+    from metis_api.main import create_app
+
+    app = create_app()
+    client = TestClient(app, client=(peer, 50000))
+    client.__enter__()
+    app.state.adapters = adapters
+    return client
+
+
+def test_fixture_identity_is_refused_for_a_lan_caller(adapters):
+    # A LAN caller can forge Host: localhost, so the Host guard alone is not enough.
+    lan = _client_from(adapters, "192.168.1.20")
+    try:
+        assert lan.get("/v1/captures", headers={"Host": "localhost"}).status_code == 401
+    finally:
+        lan.__exit__(None, None, None)
+    local = _client_from(adapters, "127.0.0.1")
+    try:
+        assert local.get("/v1/captures").status_code == 200
+    finally:
+        local.__exit__(None, None, None)
+
+
+def test_rate_limiter_is_fixed_window_and_resets_at_the_boundary(monkeypatch):
+    import metis_api.deps as deps
+
+    now = [120.0]  # start of a 60 s window
+    monkeypatch.setattr(deps.time, "monotonic", lambda: now[0])
+    limiter = deps.RateLimiter()
+    for _ in range(3):
+        limiter.check("k", limit=3)
+    now[0] = 179.0
+    with pytest.raises(MetisError) as refused:
+        limiter.check("k", limit=3)
+    assert refused.value.retry_after_seconds == 2  # until 180, not 60 s after the first hit
+    now[0] = 180.0  # new window: the full allowance is back at once
+    for _ in range(3):
+        limiter.check("k", limit=3)
+
+
+def test_every_rule_must_pass_and_a_refusal_counts_nothing(monkeypatch):
+    import metis_api.deps as deps
+
+    monkeypatch.setattr(deps.time, "monotonic", lambda: 0.0)
+    limiter = deps.RateLimiter()
+    rules = [("user:a", 10, 60), ("user:a", 2, 3600), ("global", 100, 60)]
+    limiter.check_all(rules)
+    limiter.check_all(rules)
+    with pytest.raises(MetisError):
+        limiter.check_all(rules)  # hourly rule refuses
+    # The refused call did not burn a minute slot or a global slot.
+    assert limiter._windows[("user:a", 60)] == (0, 2)
+    assert limiter._windows[("global", 60)] == (0, 2)
+
+
+def test_global_ceiling_limits_all_users_together(client, monkeypatch):
+    import metis_api.deps as deps
+
+    monkeypatch.setattr(deps, "_limiter", deps.RateLimiter())
+    monkeypatch.setenv("METIS_RATE_GLOBAL_PER_MINUTE", "3")
+    reset_settings_cache()
+    codes = [client.get("/v1/captures").status_code for _ in range(4)]
+    assert codes == [200, 200, 200, 429]

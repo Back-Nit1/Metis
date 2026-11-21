@@ -18,7 +18,7 @@ import {
   type AuthConfig,
   type Session,
 } from "../lib/auth";
-import { setAuthToken, setUnauthenticatedHandler } from "../lib/api";
+import { setAuthToken, setCookieSession, setUnauthenticatedHandler } from "../lib/api";
 import { isDesktop } from "../lib/desktop";
 import { resetClientData } from "../lib/reset";
 
@@ -118,58 +118,41 @@ function CognitoGate({ config, children }: { config: AuthConfig; children: React
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-const KEY_STORAGE = "metis.accessKey";
-const readKey = (): string | null => {
-  try {
-    return window.sessionStorage.getItem(KEY_STORAGE);
-  } catch {
-    return null; // storage can be blocked; the key then lives only in memory
-  }
-};
-const writeKey = (value: string | null): void => {
-  try {
-    if (value) window.sessionStorage.setItem(KEY_STORAGE, value);
-    else window.sessionStorage.removeItem(KEY_STORAGE);
-  } catch {
-    /* in-memory only */
-  }
-};
-
 /**
- * Single-user deployment gate: the API is public HTTPS and only accepts the
- * access key the operator set on the server. The key stays in this tab's
- * sessionStorage and is sent as the bearer; the server decides, so a wrong key
- * simply fails closed on the first request.
+ * Single-user deployment gate (Vercel): username and password are checked by
+ * the edge proxy, which sets an HttpOnly session cookie and only then forwards
+ * to the VM with the access key. The browser never holds the key or the cookie
+ * value; it just learns whether it is signed in.
  */
-function AccessKeyGate({ children }: { children: ReactNode }) {
-  const [key, setKey] = useState<string | null>(() => {
-    const stored = readKey();
-    setAuthToken(stored); // before children mount, so their first request carries it
-    return stored;
-  });
-  const [draft, setDraft] = useState("");
+function PasswordGate({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<"checking" | "out" | "in">("checking");
   const [message, setMessage] = useState<string | null>(null);
-
-  const drop = useCallback((why: string | null) => {
-    writeKey(null);
-    setAuthToken(null);
-    setKey(null);
-    setMessage(why);
-  }, []);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!key) return;
-    setUnauthenticatedHandler(() => drop("That access key was not accepted."));
+    fetch("/api/session", { cache: "no-store" }).then(
+      (r) => setState(r.ok ? "in" : "out"),
+      () => (setState("out"), setMessage("The sign-in service could not be reached.")),
+    );
+  }, []);
+
+  // Set during render: children's effects (their first requests) run before ours.
+  setCookieSession(state === "in");
+  useEffect(() => {
+    if (state !== "in") return;
+    setUnauthenticatedHandler(() => (setState("out"), setMessage("Your session ended. Sign in again.")));
     return () => setUnauthenticatedHandler(null);
-  }, [key, drop]);
+  }, [state]);
 
   const signOut = useCallback(() => {
     resetClientData();
-    drop(null);
-  }, [drop]);
-  const value = useMemo(() => ({ signedIn: !!key, signOut }), [key, signOut]);
+    void fetch("/api/session", { method: "POST" }).finally(() => (setState("out"), setMessage(null)));
+  }, []);
+  const value = useMemo(() => ({ signedIn: state === "in", signOut }), [state, signOut]);
 
-  if (!key)
+  if (state === "checking")
+    return <Panel><p role="status" className="mt-2 text-sm text-muted">Checking your session…</p></Panel>;
+  if (state === "out")
     return (
       <Panel>
         {message && (
@@ -178,31 +161,41 @@ function AccessKeyGate({ children }: { children: ReactNode }) {
           </p>
         )}
         <form
-          className="mt-2"
-          onSubmit={(e) => {
+          className="mt-2 text-left"
+          onSubmit={async (e) => {
             e.preventDefault();
-            const next = draft.trim();
-            if (!next) return;
-            writeKey(next);
-            setAuthToken(next);
-            setMessage(null);
-            setDraft("");
-            setKey(next);
+            const form = new FormData(e.currentTarget);
+            setBusy(true);
+            try {
+              const r = await fetch("/api/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: form.get("username"), password: form.get("password") }),
+              });
+              if (r.ok) return (setMessage(null), setState("in"));
+              setMessage(
+                r.status === 429
+                  ? `Too many attempts. Try again in ${r.headers.get("retry-after") ?? "a few"} seconds.`
+                  : r.status === 401
+                    ? "That username or password was not accepted."
+                    : "Sign-in is unavailable right now.",
+              );
+            } catch {
+              setMessage("The sign-in service could not be reached.");
+            } finally {
+              setBusy(false);
+            }
           }}
         >
-          <label className="block text-sm text-muted" htmlFor="access-key">
-            Enter your access key to open your notebook.
-          </label>
-          <input
-            id="access-key"
-            type="password"
-            autoComplete="current-password"
-            className="mt-3 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-          <Button variant="primary" className="mt-4" type="submit">
-            Open
+          <p className="text-center text-sm text-muted">Sign in to open your notebook.</p>
+          <label className="mt-3 block text-sm text-muted" htmlFor="login-user">Username</label>
+          <input id="login-user" name="username" autoComplete="username" required
+            className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm" />
+          <label className="mt-3 block text-sm text-muted" htmlFor="login-pass">Password</label>
+          <input id="login-pass" name="password" type="password" autoComplete="current-password" required
+            className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm" />
+          <Button variant="primary" className="mt-4 w-full" type="submit" disabled={busy}>
+            {busy ? "Signing in…" : "Sign in"}
           </Button>
         </form>
       </Panel>
@@ -214,8 +207,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const env = import.meta.env as Record<string, string | undefined>;
   const mode = authMode(env, isDesktop());
   if (mode.kind === "none")
-    return env.VITE_METIS_ACCESS_KEY === "required" && !isDesktop() ? (
-      <AccessKeyGate>{children}</AccessKeyGate>
+    return env.VITE_METIS_LOGIN === "password" && !isDesktop() ? (
+      <PasswordGate>{children}</PasswordGate>
     ) : (
       <>{children}</>
     );

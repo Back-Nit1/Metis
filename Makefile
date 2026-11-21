@@ -54,6 +54,7 @@ test: ## python unit tests + web unit tests
 	@# No-op while apps/web has no package.json (pnpm exits 0 on no match).
 	@# The web package's own `test` script must be non-watching.
 	$(PNPM) --filter @metis/web test
+	node --test ops/vercel/proxy.test.mjs
 
 .PHONY: test-integration
 test-integration: ## tests that need a container or real audio decoding

@@ -83,6 +83,8 @@ def adapters(tmp_path, clock, monkeypatch):
     monkeypatch.setenv("METIS_ALLOW_FIXTURE_IDENTITY", "true")
     monkeypatch.setenv("METIS_DAILY_MICRO_USD", "1000000")
     monkeypatch.setenv("METIS_RATE_PER_MINUTE", "100000")
+    monkeypatch.setenv("METIS_RATE_PER_HOUR", "1000000")
+    monkeypatch.setenv("METIS_RATE_GLOBAL_PER_MINUTE", "1000000")
     reset_settings_cache()
 
     from metis_api.deps import Adapters

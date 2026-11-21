@@ -7,11 +7,11 @@ them for a fixture and the whole API behaves deterministically.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import logging
 import re
 import threading
 import time
-from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Annotated, Any
 
@@ -146,29 +146,38 @@ def build_adapters() -> Adapters:
 
 
 class RateLimiter:
-    """Fixed-window per-principal limiter.
+    """Fixed-window limiter: one counter per (key, window), reset at each boundary.
 
-    ponytail: an in-process deque per user. Enough for a personal-scale API; a
-    shared limiter belongs at the API gateway, not in this process.
+    ``check_all`` tests every rule before counting any, so a request refused by
+    the hourly rule does not also burn a slot in the minute window.
+
+    ponytail: in-process. Enough for a personal-scale API; a shared limiter
+    belongs at the API gateway, not in this process.
     """
 
     def __init__(self) -> None:
-        self._hits: dict[str, deque[float]] = defaultdict(deque)
+        self._windows: dict[tuple[str, int], tuple[int, int]] = {}  # (key, seconds) -> (window index, count)
         self._lock = threading.Lock()
 
-    def check(self, key: str, *, limit: int, window_seconds: int = 60) -> None:
+    def check_all(self, rules: list[tuple[str, int, int]]) -> None:
+        """``rules`` is ``[(key, limit, window_seconds), ...]``."""
         now = time.monotonic()
         with self._lock:
-            hits = self._hits[key]
-            while hits and now - hits[0] > window_seconds:
-                hits.popleft()
-            if len(hits) >= limit:
-                raise MetisError(
-                    ErrorCode.RATE_LIMITED,
-                    "too many requests",
-                    retry_after_seconds=int(window_seconds - (now - hits[0])) + 1,
-                )
-            hits.append(now)
+            slots = [((key, seconds), limit, seconds, int(now // seconds)) for key, limit, seconds in rules]
+            for slot, limit, seconds, index in slots:
+                current, count = self._windows.get(slot, (index, 0))
+                if current == index and count >= limit:
+                    raise MetisError(
+                        ErrorCode.RATE_LIMITED,
+                        "too many requests",
+                        retry_after_seconds=int((index + 1) * seconds - now) + 1,
+                    )
+            for slot, _, _, index in slots:
+                current, count = self._windows.get(slot, (index, 0))
+                self._windows[slot] = (index, count + 1 if current == index else 1)
+
+    def check(self, key: str, *, limit: int, window_seconds: int = 60) -> None:
+        self.check_all([(key, limit, window_seconds)])
 
 
 _limiter = RateLimiter()
@@ -244,6 +253,20 @@ class RequestContext:
             )
 
 
+#: Starlette's TestClient reports "testclient"; a real socket peer is always an IP.
+_TEST_CLIENT = "testclient"
+
+
+def _is_loopback_client(request: Request) -> bool:
+    host = request.client.host if request.client else ""
+    if host == _TEST_CLIENT:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def get_adapters(request: Request) -> Adapters:
     adapters = getattr(request.app.state, "adapters", None)
     if not isinstance(adapters, Adapters):
@@ -260,7 +283,18 @@ async def get_context(
 ) -> RequestContext:
     fingerprint: str | None = None
     principal = principal_from_header(authorization)
-    _limiter.check(principal.user_id, limit=settings().limits.api_rate_per_minute)
+    if principal.is_fixture and not _is_loopback_client(request):
+        # The demo identity needs no credential, so it is only for this machine.
+        # The Host guard stops DNS rebinding, but a LAN caller can send any Host.
+        raise MetisError(ErrorCode.UNAUTHENTICATED, "authentication is required")
+    limits = settings().limits
+    _limiter.check_all(
+        [
+            (f"user:{principal.user_id}", limits.api_rate_per_minute, 60),
+            (f"user:{principal.user_id}", limits.api_rate_per_hour, 3600),
+            ("global", limits.api_rate_global_per_minute, 60),
+        ]
+    )
     correlation_id = clean_correlation_id(x_correlation_id)
     if idempotency_key is not None:
         if not _IDEMPOTENCY_KEY.fullmatch(idempotency_key):

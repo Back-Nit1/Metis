@@ -213,6 +213,13 @@ pub struct Connection {
     pub bearer: String,
 }
 
+/// Loopback connection to the warm speech service. This is Rust-only: the
+/// speech bearer is never exposed to either webview.
+pub struct SpeechConnection {
+    pub base_url: String,
+    pub bearer: String,
+}
+
 struct Secrets {
     api: String,
     speech: String,
@@ -310,6 +317,21 @@ impl Stack {
                 bearer: self.shared.secrets.api.clone(),
             }),
             Some(s) if s.phase == Phase::Failed => Err("unavailable"),
+            _ if self.shared.shutdown.load(Ordering::SeqCst) => Err("unavailable"),
+            _ => Err("not_ready"),
+        }
+    }
+
+    /// Returns the warm speech endpoint only after its model is ready.
+    pub fn speech_connection(&self) -> Result<SpeechConnection, &'static str> {
+        let snap = self.shared.snap.lock().unwrap();
+        let speech = snap.services.get(Kind::Speech.idx());
+        match speech {
+            Some(service) if service.phase == Phase::Ready => Ok(SpeechConnection {
+                base_url: format!("http://127.0.0.1:{}", service.port.unwrap_or(0)),
+                bearer: self.shared.secrets.speech.clone(),
+            }),
+            Some(service) if service.phase == Phase::Failed => Err("unavailable"),
             _ if self.shared.shutdown.load(Ordering::SeqCst) => Err("unavailable"),
             _ => Err("not_ready"),
         }

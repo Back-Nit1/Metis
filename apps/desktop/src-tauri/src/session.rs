@@ -6,6 +6,7 @@
 //! text only after the API returned it. No bearer, URL, audio or file path.
 use crate::audio::{encode_wav, AudioSource, Recorder, MAX_SAMPLES, TARGET_RATE};
 use crate::backend::{clip, ApiError, Backend, CreateReq};
+use crate::insertion::TextInserter;
 pub use crate::machine::State;
 use crate::machine::{Action, Machine};
 use serde::Serialize;
@@ -24,6 +25,14 @@ const POLL_EVERY: Duration = Duration::from_millis(150);
 const POLL_DEADLINE: Duration = Duration::from_secs(120);
 const MAX_TRANSCRIPT_CHARS: usize = 4000;
 
+#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Route {
+    #[default]
+    Capture,
+    Dictate,
+}
+
 #[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct StepError {
     pub step: String,
@@ -33,6 +42,7 @@ pub struct StepError {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    pub route: Route,
     pub state: State,
     pub locked: bool,
     pub elapsed_ms: u64,
@@ -40,6 +50,9 @@ pub struct Snapshot {
     /// "fixture" | "local" | "cloud" as reported by the API; None until known.
     pub adapter_mode: Option<String>,
     pub transcript: Option<String>,
+    /// Display-only streaming hypothesis. It is never inserted or persisted.
+    pub preview_transcript: Option<String>,
+    pub preview_provisional: bool,
     pub capture_id: Option<String>,
     pub needs_clarification: bool,
     pub truncated: bool,
@@ -58,12 +71,15 @@ impl Snapshot {
 
     fn new(mic_ready: bool) -> Self {
         Self {
+            route: Route::Capture,
             state: State::Idle,
             locked: false,
             elapsed_ms: 0,
             error: None,
             adapter_mode: None,
             transcript: None,
+            preview_transcript: None,
+            preview_provisional: false,
             capture_id: None,
             needs_clarification: false,
             truncated: false,
@@ -80,6 +96,7 @@ pub trait Emit: Send + Sync {
 
 pub enum Msg {
     Down,
+    DictateDown,
     Up,
     Cancel,
     /// Onboarding: open the mic once so the OS asks, and confirm real audio.
@@ -233,6 +250,11 @@ struct Work {
     released: Instant,
 }
 
+struct DictationActive {
+    id: String,
+    sent_samples: usize,
+}
+
 /// create -> upload -> complete -> poll. Every step reuses the same idempotency
 /// anchor, so a retry after an API restart is the same logical capture.
 fn process(backend: &dyn Backend, w: Work, cancel: &AtomicBool, tx: &Sender<Msg>) {
@@ -332,6 +354,7 @@ pub struct Controller {
     src: Box<dyn AudioSource>,
     rec: Option<Arc<Mutex<Recorder>>>,
     backend: Arc<dyn Backend>,
+    inserter: Arc<dyn TextInserter>,
     emit: Arc<dyn Emit>,
     shared: Arc<Mutex<Snapshot>>,
     tx: Sender<Msg>,
@@ -342,12 +365,15 @@ pub struct Controller {
     released: Option<Instant>,
     mic_ready: bool,
     mic_marker: Option<PathBuf>,
+    route: Route,
+    dictation: Option<DictationActive>,
 }
 
 impl Controller {
     pub fn new(
         src: Box<dyn AudioSource>,
         backend: Arc<dyn Backend>,
+        inserter: Arc<dyn TextInserter>,
         emit: Arc<dyn Emit>,
         shared: Arc<Mutex<Snapshot>>,
         tx: Sender<Msg>,
@@ -360,6 +386,7 @@ impl Controller {
             src,
             rec: None,
             backend,
+            inserter,
             emit,
             shared,
             tx,
@@ -370,6 +397,8 @@ impl Controller {
             released: None,
             mic_ready,
             mic_marker,
+            route: Route::Capture,
+            dictation: None,
         }
     }
 
@@ -378,6 +407,7 @@ impl Controller {
             let mut s = self.shared.lock().unwrap();
             f(&mut s);
             s.state = self.m.state();
+            s.route = self.route;
             s.locked = self.m.locked();
             s.mic_ready = self.mic_ready;
             s.clone()
@@ -388,6 +418,9 @@ impl Controller {
     fn fail(&mut self, step: &str, message: &str) {
         self.src.stop();
         self.rec = None;
+        if let Some(active) = self.dictation.take() {
+            self.backend.dictation_cancel(&active.id);
+        }
         self.cancel.store(true, Ordering::SeqCst);
         self.m.fail();
         let e = StepError {
@@ -419,6 +452,20 @@ impl Controller {
                 "microphone access is not confirmed yet; complete microphone setup first".into(),
             ));
         }
+        if self.route == Route::Dictate {
+            let app = self
+                .inserter
+                .focused_app()
+                .map_err(|error| ("insertion", error))?;
+            let session = self
+                .backend
+                .dictation_create(&app)
+                .map_err(|error| ("dictation", error.message))?;
+            self.dictation = Some(DictationActive {
+                id: session.session_id,
+                sent_samples: 0,
+            });
+        }
         let fmt = self.src.format().map_err(|e| ("audio_device", e))?;
         let rec = Arc::new(Mutex::new(Recorder::new(fmt, MAX_SAMPLES)));
         self.rec = Some(rec.clone());
@@ -429,7 +476,35 @@ impl Controller {
             .map_err(|e| ("audio_device", e))
     }
 
+    fn stream_dictation(&mut self) -> Result<(), (&'static str, String)> {
+        let Some(active) = self.dictation.as_mut() else {
+            return Ok(());
+        };
+        let Some(recorder) = self.rec.as_ref() else {
+            return Err(("audio", "no recording buffer".into()));
+        };
+        let (pcm, next_offset) = recorder.lock().unwrap().pcm_since(active.sent_samples);
+        if pcm.is_empty() {
+            return Ok(());
+        }
+        let chunk = self
+            .backend
+            .dictation_audio(&active.id, &pcm)
+            .map_err(|error| ("dictation", error.message))?;
+        active.sent_samples = next_offset;
+        if let Some(partial) = chunk.partial.filter(|partial| partial.provisional) {
+            self.publish(|snapshot| {
+                snapshot.preview_transcript = Some(clip(&partial.text, MAX_TRANSCRIPT_CHARS));
+                snapshot.preview_provisional = true;
+            });
+        }
+        Ok(())
+    }
+
     fn finish(&mut self) {
+        if self.route == Route::Dictate {
+            return self.finish_dictation();
+        }
         self.src.stop();
         let dev_err = self.src.failed();
         let Some(rec) = self.rec.take() else {
@@ -474,28 +549,88 @@ impl Controller {
         });
     }
 
+    fn finish_dictation(&mut self) {
+        self.src.stop();
+        if let Some(error) = self.src.failed() {
+            return self.fail("audio_device", &error);
+        }
+        let sample_count = self
+            .rec
+            .as_ref()
+            .map_or(0, |recorder| recorder.lock().unwrap().len());
+        if sample_count < MIN_SAMPLES {
+            if let Some(active) = self.dictation.take() {
+                self.backend.dictation_cancel(&active.id);
+            }
+            self.rec = None;
+            self.m.cancel();
+            return self.publish(|snapshot| *snapshot = Snapshot::new(snapshot.mic_ready));
+        }
+        // Key-up made the final decode authoritative; surface that transition
+        // before either loopback request can block on the single decoder.
+        self.publish(|_| {});
+        if let Err((step, error)) = self.stream_dictation() {
+            return self.fail(step, &error);
+        }
+        self.rec = None;
+        self.publish(|snapshot| {
+            snapshot.preview_transcript = None;
+            snapshot.preview_provisional = false;
+        });
+        let Some(active) = self.dictation.take() else {
+            return self.fail("dictation", "dictation session is missing");
+        };
+        let result = match self.backend.dictation_finish(&active.id) {
+            Ok(result) => result,
+            Err(error) => return self.fail("dictation", &error.message),
+        };
+        let adapter_mode = result.speech["adapter_mode"].as_str().map(str::to_string);
+        if adapter_mode.as_deref() == Some("fixture") {
+            return self.fail(
+                "dictation",
+                "fixture speech cannot be inserted as if it came from the microphone",
+            );
+        }
+        if !result.no_speech && !result.text.is_empty() {
+            if let Err(error) = self.inserter.insert(&result.text) {
+                return self.fail("insertion", &error);
+            }
+        }
+        let _ = self.m.progress(State::Saved);
+        self.publish(|snapshot| {
+            snapshot.transcript =
+                (!result.text.is_empty()).then(|| clip(&result.text, MAX_TRANSCRIPT_CHARS));
+            snapshot.adapter_mode = adapter_mode;
+            snapshot.preview_transcript = None;
+            snapshot.preview_provisional = false;
+        });
+    }
+
+    fn begin(&mut self, route: Route, now: u64) {
+        if self.m.key_down(now) != Action::StartMic {
+            return;
+        }
+        self.route = route;
+        self.gen += 1;
+        self.t_down = now;
+        self.released = None;
+        match self.start_mic() {
+            Ok(()) => self.publish(|snapshot| *snapshot = Snapshot::new(snapshot.mic_ready)),
+            Err((step, why)) => self.fail(step, &why),
+        }
+    }
+
     pub fn handle(&mut self, msg: Msg, now: u64) {
         match msg {
-            Msg::Down => match self.m.key_down(now) {
-                Action::StartMic => {
-                    self.gen += 1;
-                    self.t_down = now;
-                    self.released = None;
-                    match self.start_mic() {
-                        Ok(()) => self.publish(|s| *s = Snapshot::new(s.mic_ready)),
-                        Err((step, why)) => self.fail(step, &why),
-                    }
-                }
-                Action::Finish => {
-                    self.released = Some(Instant::now());
-                    self.finish();
-                }
-                _ => {}
-            },
+            Msg::Down => self.down(Route::Capture, now),
+            Msg::DictateDown => self.down(Route::Dictate, now),
             Msg::Up => match self.m.key_up(now) {
                 Action::Discard => {
                     self.src.stop();
                     self.rec = None;
+                    if let Some(active) = self.dictation.take() {
+                        self.backend.dictation_cancel(&active.id);
+                    }
                     self.publish(|s| *s = Snapshot::new(s.mic_ready));
                 }
                 Action::Promoted => self.publish(|s| s.elapsed_ms = 0),
@@ -511,6 +646,9 @@ impl Controller {
                     Action::Discard => {
                         self.src.stop();
                         self.rec = None;
+                        if let Some(active) = self.dictation.take() {
+                            self.backend.dictation_cancel(&active.id);
+                        }
                     }
                     Action::CancelWork => self.cancel.store(true, Ordering::SeqCst),
                     _ => {}
@@ -545,6 +683,18 @@ impl Controller {
         }
     }
 
+    fn down(&mut self, route: Route, now: u64) {
+        match self.m.state() {
+            State::Recording if self.m.locked() => {
+                if self.m.key_down(now) == Action::Finish {
+                    self.released = Some(Instant::now());
+                    self.finish();
+                }
+            }
+            _ => self.begin(route, now),
+        }
+    }
+
     /// Periodic work: Armed -> Recording, elapsed updates, buffer bound, device errors.
     pub fn tick(&mut self, now: u64) {
         if self.m.tick(now) == Action::Promoted {
@@ -568,6 +718,11 @@ impl Controller {
         }
         if now.saturating_sub(self.last_emit) >= EMIT_EVERY_MS {
             self.last_emit = now;
+            if self.route == Route::Dictate {
+                if let Err((step, error)) = self.stream_dictation() {
+                    return self.fail(step, &error);
+                }
+            }
             let ms = self.recording_ms(now);
             self.publish(|s| s.elapsed_ms = ms);
         }
@@ -633,6 +788,9 @@ impl Controller {
         self.cancel.store(true, Ordering::SeqCst);
         self.src.stop();
         self.rec = None;
+        if let Some(active) = self.dictation.take() {
+            self.backend.dictation_cancel(&active.id);
+        }
     }
 }
 
@@ -654,6 +812,7 @@ impl Handle {
 pub fn spawn(
     make_source: impl FnOnce() -> Box<dyn AudioSource> + Send + 'static,
     backend: Arc<dyn Backend>,
+    inserter: Arc<dyn TextInserter>,
     emit: Arc<dyn Emit>,
     mic_marker: Option<PathBuf>,
 ) -> (Handle, JoinHandle<()>) {
@@ -666,7 +825,15 @@ pub fn spawn(
     let join = thread::Builder::new()
         .name("metis-capture".into())
         .spawn(move || {
-            let mut c = Controller::new(make_source(), backend, emit, shared, tx, mic_marker);
+            let mut c = Controller::new(
+                make_source(),
+                backend,
+                inserter,
+                emit,
+                shared,
+                tx,
+                mic_marker,
+            );
             let t0 = Instant::now();
             let ms = || t0.elapsed().as_millis() as u64;
             loop {
@@ -687,7 +854,10 @@ pub fn spawn(
 mod tests {
     use super::*;
     use crate::audio::{Format, Sink};
-    use crate::backend::UploadTarget;
+    use crate::backend::{
+        DictationChunk, DictationPartial, DictationResult, DictationSession, UploadTarget,
+    };
+    use crate::insertion::TextInserter;
     use serde_json::json;
     use std::sync::atomic::AtomicUsize;
 
@@ -744,6 +914,19 @@ mod tests {
     }
 
     #[derive(Default)]
+    struct RecordingInserter(Mutex<Vec<String>>);
+    impl TextInserter for RecordingInserter {
+        fn focused_app(&self) -> Result<String, String> {
+            Ok("Tests".into())
+        }
+
+        fn insert(&self, text: &str) -> Result<(), String> {
+            self.0.lock().unwrap().push(text.into());
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
     struct Fake {
         ready: Mutex<Option<String>>,
         creates: AtomicUsize,
@@ -752,6 +935,7 @@ mod tests {
         fail_first_create: AtomicBool,
         deleted: AtomicUsize,
         last_upload_bytes: AtomicUsize,
+        dictation_bytes: AtomicUsize,
         /// 0 = finished review, 1 = still transcribing, 2 = transcript but no proposal yet.
         get_mode: AtomicUsize,
     }
@@ -808,21 +992,48 @@ mod tests {
         fn delete(&self, _: &str) {
             self.deleted.fetch_add(1, Ordering::SeqCst);
         }
+        fn dictation_create(&self, _: &str) -> Result<DictationSession, ApiError> {
+            Ok(DictationSession {
+                session_id: "flow1".into(),
+            })
+        }
+        fn dictation_audio(&self, _: &str, pcm: &[u8]) -> Result<DictationChunk, ApiError> {
+            self.dictation_bytes.fetch_add(pcm.len(), Ordering::SeqCst);
+            Ok(DictationChunk {
+                seconds: self.dictation_bytes.load(Ordering::SeqCst) as f64 / 32_000.0,
+                partial: Some(DictationPartial {
+                    text: "incorrect preview".into(),
+                    provisional: true,
+                    at_seconds: 0.5,
+                }),
+            })
+        }
+        fn dictation_finish(&self, _: &str) -> Result<DictationResult, ApiError> {
+            Ok(DictationResult {
+                text: "Final cleaned text.".into(),
+                raw_text: "um final cleaned text".into(),
+                no_speech: false,
+                speech: json!({"adapter_mode":"local"}),
+            })
+        }
     }
 
     struct Rig {
         c: Controller,
         rx: std::sync::mpsc::Receiver<Msg>,
         backend: Arc<Fake>,
+        inserter: Arc<RecordingInserter>,
         events: Arc<Mutex<Vec<Snapshot>>>,
     }
     fn rig() -> Rig {
         let backend = Arc::new(Fake::default());
         let events: Arc<Mutex<Vec<Snapshot>>> = Arc::default();
+        let inserter = Arc::new(RecordingInserter::default());
         let (tx, rx) = channel();
         let c = Controller::new(
             Box::new(Silent),
             backend.clone(),
+            inserter.clone(),
             events.clone(),
             Arc::new(Mutex::new(Snapshot::new(true))),
             tx,
@@ -832,6 +1043,7 @@ mod tests {
             c,
             rx,
             backend,
+            inserter,
             events,
         }
     }
@@ -867,6 +1079,31 @@ mod tests {
         assert_eq!(s.transcript.as_deref(), Some("call mom"));
         assert_eq!(s.adapter_mode.as_deref(), Some("fixture"));
         assert!(s.release_to_transcript_ms.is_some() && s.extraction_ms.is_some());
+    }
+
+    #[test]
+    fn dictate_inserts_only_final_text_and_does_not_create_capture() {
+        let mut rig = rig();
+        rig.c.handle(Msg::DictateDown, 0);
+        rig.c.tick(250);
+        rig.c.tick(500);
+        assert_eq!(
+            rig.c.shared.lock().unwrap().preview_transcript.as_deref(),
+            Some("incorrect preview")
+        );
+
+        rig.c.handle(Msg::Up, 600);
+
+        assert_eq!(rig.state(), State::Saved);
+        assert_eq!(rig.backend.creates.load(Ordering::SeqCst), 0);
+        assert_eq!(rig.backend.dictation_bytes.load(Ordering::SeqCst), 16_000);
+        assert_eq!(
+            rig.inserter.0.lock().unwrap().as_slice(),
+            ["Final cleaned text."]
+        );
+        let snapshot = rig.c.shared.lock().unwrap().clone();
+        assert_eq!(snapshot.transcript.as_deref(), Some("Final cleaned text."));
+        assert!(snapshot.preview_transcript.is_none() && !snapshot.preview_provisional);
     }
 
     #[test]

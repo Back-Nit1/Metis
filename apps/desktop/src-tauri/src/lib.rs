@@ -2,6 +2,7 @@
 pub mod audio;
 pub mod backend;
 pub mod hud;
+pub mod insertion;
 pub mod machine;
 pub mod session;
 pub mod stack;
@@ -199,29 +200,39 @@ fn start_stack(data_dir: PathBuf) -> Result<Stack, String> {
     Stack::start(Config::production(backend, &data_dir))
 }
 
-/// Cmd+Option+Space, with separate press and release. A registration failure
-/// (another app owns the chord, or the OS refuses) is shown, never swallowed.
+/// Capture uses Cmd+Option+Space. Dictation uses Cmd+Option+D. Both have
+/// separate press/release events and share the same gesture state machine.
 fn register_hotkey(app: &tauri::AppHandle, handle: &Handle) {
-    let shortcut = Shortcut::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Space);
-    let h = handle.clone();
     let result = app
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .map_err(|e| e.to_string())
         .and_then(|_| {
+            let capture = Shortcut::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Space);
+            let dictate = Shortcut::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::KeyD);
+            let capture_handle = handle.clone();
             app.global_shortcut()
-                .on_shortcut(shortcut, move |_, _, event| {
-                    h.send(match event.state() {
+                .on_shortcut(capture, move |_, _, event| {
+                    capture_handle.send(match event.state() {
                         ShortcutState::Pressed => Msg::Down,
                         ShortcutState::Released => Msg::Up,
-                    })
+                    });
                 })
-                .map_err(|e| e.to_string())
+                .map_err(|error| error.to_string())?;
+            let dictate_handle = handle.clone();
+            app.global_shortcut()
+                .on_shortcut(dictate, move |_, _, event| {
+                    dictate_handle.send(match event.state() {
+                        ShortcutState::Pressed => Msg::DictateDown,
+                        ShortcutState::Released => Msg::Up,
+                    });
+                })
+                .map_err(|error| error.to_string())
         });
     if let Err(e) = result {
         handle.send(Msg::Fail {
             step: "shortcut",
             message: format!(
-                "Cmd+Option+Space could not be registered (another app may use it): {e}"
+                "The Capture or Dictate shortcut could not be registered (another app may use it): {e}"
             ),
         });
     }
@@ -270,6 +281,7 @@ pub fn run() {
             let (handle, join) = session::spawn(
                 || Box::new(audio::CpalSource::default()),
                 Arc::new(backend::HttpBackend::new(state.stack.clone())),
+                Arc::new(insertion::SystemTextInserter),
                 Arc::new(TauriEmit::new(app.handle().clone())),
                 data_dir.ok().map(|d| d.join("mic_confirmed")),
             );
@@ -329,7 +341,10 @@ mod tests {
                 "locked",
                 "micReady",
                 "needsClarification",
+                "previewProvisional",
+                "previewTranscript",
                 "releaseToTranscriptMs",
+                "route",
                 "state",
                 "transcript",
                 "truncated"

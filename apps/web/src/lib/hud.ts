@@ -21,17 +21,20 @@ export type HudState = (typeof HUD_STATES)[number];
 
 export const ERROR_STEPS = [
   "shortcut", "not_ready", "startup_failed", "mic_permission", "audio_device", "audio",
-  "create", "upload", "complete", "poll", "processing", "timeout",
+  "create", "upload", "complete", "poll", "processing", "timeout", "dictation", "insertion",
 ] as const;
 export type ErrorStep = (typeof ERROR_STEPS)[number];
 
 export type HudSnapshot = {
+  route: "capture" | "dictate";
   state: HudState;
   locked: boolean;
   elapsedMs: number;
   error: { step: ErrorStep | "unknown" } | null;
   adapterMode: "fixture" | "local" | "cloud" | null;
   transcript: string | null;
+  previewTranscript: string | null;
+  previewProvisional: boolean;
   captureId: string | null;
   needsClarification: boolean;
   truncated: boolean;
@@ -41,7 +44,8 @@ export type HudSnapshot = {
 };
 
 export const IDLE_SNAPSHOT: HudSnapshot = {
-  state: "idle", locked: false, elapsedMs: 0, error: null, adapterMode: null, transcript: null,
+  route: "capture", state: "idle", locked: false, elapsedMs: 0, error: null, adapterMode: null, transcript: null,
+  previewTranscript: null, previewProvisional: false,
   captureId: null, needsClarification: false, truncated: false, micReady: false,
   releaseToTranscriptMs: null, extractionMs: null,
 };
@@ -59,6 +63,7 @@ export function parseSnapshot(raw: unknown): HudSnapshot | null {
   const step = err && typeof err === "object" && typeof err.step === "string" ? err.step : null;
   const adapter = r.adapterMode;
   return {
+    route: r.route === "dictate" ? "dictate" : "capture",
     state,
     locked: r.locked === true,
     elapsedMs: num(r.elapsedMs),
@@ -67,6 +72,8 @@ export function parseSnapshot(raw: unknown): HudSnapshot | null {
       : state === "error" ? { step: "unknown" } : null,
     adapterMode: adapter === "fixture" || adapter === "local" || adapter === "cloud" ? adapter : null,
     transcript: typeof r.transcript === "string" && r.transcript ? r.transcript.slice(0, 4000) : null,
+    previewTranscript: typeof r.previewTranscript === "string" && r.previewTranscript ? r.previewTranscript.slice(0, 4000) : null,
+    previewProvisional: r.previewProvisional === true,
     captureId: typeof r.captureId === "string" ? r.captureId : null,
     needsClarification: r.needsClarification === true,
     truncated: r.truncated === true,
@@ -92,6 +99,8 @@ export const ERROR_COPY: Record<ErrorStep | "unknown", ErrorCopy> = {
   poll: { title: "Lost contact with the API", detail: "Progress cannot be read. Check the main window for the note.", retryable: false },
   processing: { title: "Processing failed", detail: "Transcription or extraction did not finish. Open Metis to retry.", retryable: false },
   timeout: { title: "Timed out", detail: "Processing took too long. The note may still finish; check the main window.", retryable: false },
+  dictation: { title: "Dictation failed", detail: "The final recording could not be transcribed. No preview text was inserted.", retryable: true },
+  insertion: { title: "Could not insert text", detail: "Allow Accessibility access, focus a non-secure text field, and try again.", retryable: true },
   unknown: { title: "Something went wrong", detail: "Open Metis for details. Nothing was saved from here.", retryable: false },
 };
 
@@ -132,33 +141,51 @@ export function describe(s: HudSnapshot): HudView {
     status: FLOW_STATUS.idle, hint: null, speech, extraction, showCancel: false, showOpenReview: false,
     clock: null, transcript: null, error: null,
   };
+  const review = (): HudView => ({
+    ...base,
+    status: s.needsClarification ? FLOW_STATUS.clarification_required : {
+      label: "Ready to review",
+      detail: "Nothing is saved until you confirm in Metis.",
+      tone: "good", cue: "✓", busy: false,
+    },
+    hint: s.truncated ? "The transcript is shortened here; the full text is in Metis." : null,
+    transcript: s.transcript, showOpenReview: true,
+  });
   switch (s.state) {
     case "idle":
-      return { ...base, status: { ...FLOW_STATUS.idle, detail: s.micReady ? "Hold the hotkey to talk." : "Hold the hotkey to talk. The first use asks for the microphone." }, speech: null };
+      return { ...base, status: { ...FLOW_STATUS.idle, detail: s.micReady ? "Capture: ⌘⌥Space · Dictate: ⌘⌥D" : "Enable the microphone in Metis before using either hotkey." }, speech: null };
     case "armed":
       return { ...base, status: { label: "Starting", detail: "Opening the microphone.", tone: "busy", cue: "…", busy: true }, showCancel: true, speech: null };
     case "recording":
       return {
         ...base,
-        status: { ...FLOW_STATUS.recording, detail: s.locked ? "Locked on. Press the hotkey again to stop." : "Release the hotkey to stop." },
+        status: { ...FLOW_STATUS.recording, detail: s.locked ? "Locked on. Press the hotkey again to stop." : `Release to ${s.route === "dictate" ? "insert finalized text" : "create a capture"}.` },
         clock: formatClock(s.elapsedMs), showCancel: true, speech: null,
+        transcript: s.previewProvisional ? s.previewTranscript : null,
+        hint: s.previewProvisional ? "Preview only — the complete recording is transcribed again before insertion." : null,
       };
     case "transcribing":
-      return { ...base, status: { ...FLOW_STATUS.transcribing, detail: "Uploaded. Not transcribed yet." }, showCancel: true, speech: null };
-    case "extracting":
-      return { ...base, status: FLOW_STATUS.extraction_pending, transcript: s.transcript, showCancel: true };
-    case "saved": // The desktop never emits this and the HUD cannot verify it.
-    case "review":
       return {
         ...base,
-        status: s.needsClarification ? FLOW_STATUS.clarification_required : {
-          label: "Ready to review",
-          detail: "Nothing is saved until you confirm in Metis.",
-          tone: "good", cue: "✓", busy: false,
-        },
-        hint: s.truncated ? "The transcript is shortened here; the full text is in Metis." : null,
-        transcript: s.transcript, showOpenReview: true,
+        status: { ...FLOW_STATUS.transcribing, detail: s.route === "dictate" ? "Finalizing the complete recording. Preview text will not be inserted." : "Uploaded. Not transcribed yet." },
+        showCancel: true,
+        speech: null,
+        transcript: s.previewProvisional ? s.previewTranscript : null,
+        hint: s.previewProvisional ? "Provisional preview" : null,
       };
+    case "extracting":
+      return { ...base, status: FLOW_STATUS.extraction_pending, transcript: s.transcript, showCancel: true };
+    case "saved":
+      if (s.route === "dictate") {
+        return {
+          ...base,
+          status: { label: "Inserted", detail: "Finalized text was inserted into the focused app.", tone: "good", cue: "✓", busy: false },
+          transcript: s.transcript,
+        };
+      }
+      return review();
+    case "review":
+      return review();
     case "error": {
       const error = ERROR_COPY[s.error?.step ?? "unknown"];
       return {

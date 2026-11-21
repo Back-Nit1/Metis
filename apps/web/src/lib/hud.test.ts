@@ -11,8 +11,8 @@ const html = (s: HudSnapshot) => renderToStaticMarkup(createElement(HudView, { s
 
 suite("parseSnapshot", () => {
   it("accepts the Rust camelCase payload, any state case", () => {
-    const s = parseSnapshot({ state: "Recording", locked: true, elapsedMs: 4200, error: null, adapterMode: "local", micReady: true });
-    expect(s).toMatchObject({ state: "recording", locked: true, elapsedMs: 4200, adapterMode: "local" });
+    const s = parseSnapshot({ route: "dictate", state: "Recording", locked: true, elapsedMs: 4200, error: null, adapterMode: "local", micReady: true, previewTranscript: "maybe", previewProvisional: true });
+    expect(s).toMatchObject({ route: "dictate", state: "recording", locked: true, elapsedMs: 4200, adapterMode: "local", previewTranscript: "maybe", previewProvisional: true });
   });
   it("rejects unknown states and junk, and turns unknown adapters/steps into null/unknown", () => {
     expect(parseSnapshot({ state: "exploding" })).toBeNull();
@@ -38,6 +38,14 @@ suite("state rendering", () => {
   });
   it("uploaded is not transcribed", () => {
     expect(describe(snap({ state: "transcribing" })).status.detail).toMatch(/not transcribed yet/i);
+  });
+  it("dictation labels previews as provisional and inserts only finalized text", () => {
+    const recording = describe(snap({ route: "dictate", state: "recording", previewTranscript: "wrong preview", previewProvisional: true }));
+    expect(recording.transcript).toBe("wrong preview");
+    expect(recording.hint).toMatch(/preview only/i);
+    const final = describe(snap({ route: "dictate", state: "saved", transcript: "Final words." }));
+    expect(final.status.label).toBe("Inserted");
+    expect(final.transcript).toBe("Final words.");
   });
   it("review never says Saved and points to the main window", () => {
     for (const state of ["review", "saved"] as const) {

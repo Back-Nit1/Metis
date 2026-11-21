@@ -54,6 +54,32 @@ pub struct Created {
     pub upload: Option<UploadTarget>,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct DictationSession {
+    pub session_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct DictationPartial {
+    pub text: String,
+    pub provisional: bool,
+    pub at_seconds: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct DictationChunk {
+    pub seconds: f64,
+    pub partial: Option<DictationPartial>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct DictationResult {
+    pub text: String,
+    pub raw_text: String,
+    pub no_speech: bool,
+    pub speech: Value,
+}
+
 pub trait Backend: Send + Sync {
     /// Ok only when the stack reports `recording_allowed`; otherwise why not.
     fn ready(&self) -> Result<(), String>;
@@ -63,12 +89,27 @@ pub trait Backend: Send + Sync {
     fn get(&self, id: &str) -> Result<Value, ApiError>;
     /// Best-effort removal of an abandoned capture.
     fn delete(&self, id: &str);
+    fn dictation_create(&self, _app: &str) -> Result<DictationSession, ApiError> {
+        Err(ApiError::new(false, "dictation is unavailable"))
+    }
+    fn dictation_audio(&self, _id: &str, _pcm: &[u8]) -> Result<DictationChunk, ApiError> {
+        Err(ApiError::new(false, "dictation is unavailable"))
+    }
+    fn dictation_finish(&self, _id: &str) -> Result<DictationResult, ApiError> {
+        Err(ApiError::new(false, "dictation is unavailable"))
+    }
+    fn dictation_cancel(&self, _id: &str) {}
 }
 
 /// Real HTTP backend over the supervised loopback API.
 pub struct HttpBackend {
     stack: Arc<Mutex<Option<Stack>>>,
     agent: ureq::Agent,
+}
+
+struct Endpoint<'a> {
+    base: &'a str,
+    bearer: &'a str,
 }
 
 impl HttpBackend {
@@ -91,6 +132,18 @@ impl HttpBackend {
         }
     }
 
+    fn speech_conn(&self) -> Result<(String, String), ApiError> {
+        match self.stack.lock().unwrap().as_ref() {
+            Some(stack) => stack
+                .speech_connection()
+                .map(|connection| (connection.base_url, connection.bearer))
+                .map_err(|error| {
+                    ApiError::new(error == "not_ready", format!("local speech {error}"))
+                }),
+            None => Err(ApiError::new(false, "local speech unavailable")),
+        }
+    }
+
     /// One request; maps HTTP status to ApiError carrying only the server's
     /// `code`/`message` fields, never headers or bodies we did not parse.
     fn send(
@@ -102,19 +155,56 @@ impl HttpBackend {
         body: Body<'_>,
     ) -> Result<Value, ApiError> {
         let (base, bearer) = self.conn()?;
+        self.send_at(
+            Endpoint {
+                base: &base,
+                bearer: &bearer,
+            },
+            method,
+            path_or_url,
+            key,
+            extra,
+            body,
+        )
+    }
+
+    fn send_speech(&self, method: &str, path: &str, body: Body<'_>) -> Result<Value, ApiError> {
+        let (base, bearer) = self.speech_conn()?;
+        self.send_at(
+            Endpoint {
+                base: &base,
+                bearer: &bearer,
+            },
+            method,
+            path,
+            None,
+            &HashMap::new(),
+            body,
+        )
+    }
+
+    fn send_at(
+        &self,
+        endpoint: Endpoint<'_>,
+        method: &str,
+        path_or_url: &str,
+        key: Option<&str>,
+        extra: &HashMap<String, String>,
+        body: Body<'_>,
+    ) -> Result<Value, ApiError> {
         let url = if path_or_url.starts_with("http") {
             path_or_url.to_string()
         } else {
-            format!("{base}{path_or_url}")
+            format!("{}{path_or_url}", endpoint.base)
         };
         // Credentials only ever go to our own loopback API.
-        if !url.starts_with(&base) {
+        if !url.starts_with(endpoint.base) {
             return Err(ApiError::new(false, "refusing a non-local upload target"));
         }
         let mut req = ureq::http::Request::builder()
             .method(method)
             .uri(&url)
-            .header("Authorization", format!("Bearer {bearer}"));
+            .header("Authorization", format!("Bearer {}", endpoint.bearer));
         if let Some(k) = key {
             req = req.header("Idempotency-Key", k);
         }
@@ -252,5 +342,41 @@ impl Backend for HttpBackend {
             &HashMap::new(),
             Body::None,
         );
+    }
+
+    fn dictation_create(&self, app: &str) -> Result<DictationSession, ApiError> {
+        let preferences = self.send("GET", "/v1/preferences", None, &HashMap::new(), Body::None)?;
+        let flow = preferences
+            .get("flow")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let value = self.send_speech(
+            "POST",
+            "/v1/flow/sessions",
+            Body::Json(json!({"app": app, "settings": flow})),
+        )?;
+        serde_json::from_value(value).map_err(bad)
+    }
+
+    fn dictation_audio(&self, id: &str, pcm: &[u8]) -> Result<DictationChunk, ApiError> {
+        let value = self.send_speech(
+            "POST",
+            &format!("/v1/flow/sessions/{id}/audio"),
+            Body::Bytes(pcm, "application/octet-stream"),
+        )?;
+        serde_json::from_value(value).map_err(bad)
+    }
+
+    fn dictation_finish(&self, id: &str) -> Result<DictationResult, ApiError> {
+        let value = self.send_speech(
+            "POST",
+            &format!("/v1/flow/sessions/{id}/finish"),
+            Body::Json(json!({})),
+        )?;
+        serde_json::from_value(value).map_err(bad)
+    }
+
+    fn dictation_cancel(&self, id: &str) {
+        let _ = self.send_speech("DELETE", &format!("/v1/flow/sessions/{id}"), Body::None);
     }
 }

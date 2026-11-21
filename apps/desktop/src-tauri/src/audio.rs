@@ -133,6 +133,17 @@ impl Recorder {
         self.truncated || self.is_full()
     }
 
+    /// Copies newly recorded samples as little-endian PCM16 for the dictation
+    /// transport. The authoritative full sample buffer remains intact.
+    pub fn pcm_since(&self, offset: usize) -> (Vec<u8>, usize) {
+        let start = offset.min(self.samples.len());
+        let mut bytes = Vec::with_capacity((self.samples.len() - start) * 2);
+        for sample in &self.samples[start..] {
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        (bytes, self.samples.len())
+    }
+
     pub fn take_samples(&mut self) -> Vec<i16> {
         std::mem::take(&mut self.samples)
     }

@@ -7,6 +7,7 @@ use metis_desktop_lib::audio::WavSource;
 use metis_desktop_lib::backend::{
     ApiError, Backend, CreateReq, Created, HttpBackend, UploadTarget,
 };
+use metis_desktop_lib::insertion::SystemTextInserter;
 use metis_desktop_lib::machine::State;
 use metis_desktop_lib::session::{spawn, Emit, Msg, Snapshot};
 use metis_desktop_lib::stack::{Config, Phase, Stack};
@@ -119,6 +120,7 @@ fn wav_to_transcript_to_proposal_through_real_backend() {
             move || Box::new(WavSource::new(wav))
         },
         Arc::new(gate),
+        Arc::new(SystemTextInserter),
         events.clone(),
         None,
     );
@@ -222,6 +224,7 @@ fn missing_model_refuses_to_record_through_real_backend() {
     let (handle, join) = spawn(
         move || Box::new(WavSource::new(wav)),
         Arc::new(HttpBackend::new(stack.clone())),
+        Arc::new(SystemTextInserter),
         Arc::new(Collect::default()),
         None,
     );

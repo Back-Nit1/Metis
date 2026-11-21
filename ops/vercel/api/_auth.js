@@ -51,7 +51,7 @@ async function passwordMatches(password, stored) {
   return equal(await pbkdf2(password, unb64u(salt), Number(iterations)), hash);
 }
 
-// ----- fixed-window rate limiting ------------------------------------------ //
+// ----- sliding-window rate limiting ---------------------------------------- //
 // ponytail: per edge isolate, so a determined attacker spread across regions
 // gets a few extra tries. The real defence is a long random password; this
 // just stops a single client hammering the hash.
@@ -60,15 +60,23 @@ const windows = new Map();
 /** rules: [key, limit, windowSeconds][]. Returns 0 when allowed, else seconds to wait. */
 export function limit(rules) {
   const now = Date.now() / 1000;
-  const slots = rules.map(([key, max, seconds]) => [`${key}@${seconds}`, max, seconds, Math.floor(now / seconds)]);
-  for (const [id, max, seconds, start] of slots) {
-    const hit = windows.get(id);
-    if (hit && hit[0] === start && hit[1] >= max) return Math.ceil((start + 1) * seconds - now);
+  const slots = rules.map(([key, max, seconds]) => {
+    const id = `${key}@${seconds}`;
+    const events = (windows.get(id)?.events || []).filter((at) => at > now - seconds);
+    return { id, max, seconds, events };
+  });
+  for (const slot of slots) {
+    if (slot.events.length >= slot.max) return Math.max(1, Math.ceil(slot.events[0] + slot.seconds - now));
   }
-  if (windows.size > 10_000) windows.clear();
-  for (const [id, , , start] of slots) {
-    const hit = windows.get(id);
-    windows.set(id, hit && hit[0] === start ? [start, hit[1] + 1] : [start, 1]);
+  if (windows.size > 10_000) {
+    for (const [id, slot] of windows) {
+      slot.events = slot.events.filter((at) => at > now - slot.seconds);
+      if (slot.events.length === 0) windows.delete(id);
+    }
+  }
+  for (const slot of slots) {
+    slot.events.push(now);
+    windows.set(slot.id, { seconds: slot.seconds, events: slot.events });
   }
   return 0;
 }

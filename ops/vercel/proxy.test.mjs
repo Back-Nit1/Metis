@@ -3,7 +3,7 @@
 // without a valid signed session.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pbkdf2 } from "./api/_auth.js";
+import { limit, pbkdf2 } from "./api/_auth.js";
 
 const salt = new Uint8Array(16);
 process.env.METIS_API_ORIGIN = "https://vm.example";
@@ -63,6 +63,26 @@ test("login attempts are limited per client", async () => {
   const codes = [];
   for (let i = 0; i < 6; i++) codes.push((await attempt()).status);
   assert.deepEqual(codes, [401, 401, 401, 401, 401, 429]);
+});
+
+test("login limiter uses a true rolling window", () => {
+  const realNow = Date.now;
+  let now = 120_000;
+  Date.now = () => now;
+  try {
+    assert.equal(limit([["rolling-boundary", 3, 60]]), 0);
+    now = 121_000;
+    assert.equal(limit([["rolling-boundary", 3, 60]]), 0);
+    now = 179_000;
+    assert.equal(limit([["rolling-boundary", 3, 60]]), 0);
+    assert.equal(limit([["rolling-boundary", 3, 60]]), 1);
+
+    now = 180_000; // only the first event expires; there is no boundary reset.
+    assert.equal(limit([["rolling-boundary", 3, 60]]), 0);
+    assert.equal(limit([["rolling-boundary", 3, 60]]), 1);
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 test("valid login: forwarded with the key, without the cookie; traversal refused", async () => {

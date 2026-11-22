@@ -1,6 +1,6 @@
 # Metis local corpus + connectors — design
 
-Status: **draft** 2026-11-21. Needs coordinator review (touches `packages/contracts/`).
+Status: **draft** 2026-11-21, decisions D1–D5 recorded §12. Needs coordinator review (touches `packages/contracts/`).
 Supersedes nothing yet; would become ADR 0006 once accepted.
 
 ## 1. Problem
@@ -41,7 +41,7 @@ Non-goals (this spec)
 | --- | --- |
 | `apps/desktop` (Tauri, Rust) | Primary product. Window, HUD, capture, sidecar supervisor, folder picker, OAuth browser hand-off. |
 | `apps/web` (React build) | **Stays** — it is the desktop UI (`frontendDist: ../../web/dist`). Still runnable in a browser against the local API for dev. |
-| Hosted web + AWS stack | Frozen at current capability. No corpus, no connectors. Kept for capture-from-phone later or retired — open question Q1. |
+| Hosted web + AWS stack | **Retired** (decision D1). No new features; teardown is a separate, explicit ops step. New entities need not be DynamoDB-compatible. |
 | Python backend sidecar | Owns connectors, parsing, chunking, embedding, sync jobs. Already has filesystem access. |
 
 Rationale: the browser never needed disk access — the local Python sidecar
@@ -88,9 +88,12 @@ exactly like memories (`_source_is_current`).
 
 ### 4.2 Secrets
 
-OAuth refresh tokens live in the **macOS Keychain** (Python `keyring`,
-service `metis.connector.<id>`). Never in SQLite, never in the webview,
-never in logs. Rule 8 (no credentials in the browser) holds.
+OAuth refresh tokens live in the **OS credential store** via Python `keyring`
+(service `metis.connector.<id>`): macOS Keychain, Windows Credential Locker,
+Linux Secret Service (GNOME Keyring / KWallet). If no Linux secret service is
+running, the connector refuses to save the token and says so — no plaintext
+fallback. Never in SQLite, never in the webview, never in logs. Rule 8 (no
+credentials in the browser) holds.
 
 ## 5. Pipeline
 
@@ -108,8 +111,36 @@ idempotent on `(connector_id, external_id, external_version)` and
 | Connector | Discovery | Incremental | Delete |
 | --- | --- | --- | --- |
 | `local_folder` | user picks folders in Tauri dialog; walk with include/exclude globs | poll every N min: compare `(mtime, size)`, then sha256 | missing path → tombstone |
-| `gmail` | `users.messages.list` with label/query filter, bounded backfill window (default 1 year) | `users.history.list` from stored `historyId`; full resync if 404 | `messagesDeleted` → tombstone |
+| `gmail` | `users.messages.list` with `q=after:<epoch>`, backfill window = last 30 days, computed at sync time (§5.1.1) | `users.history.list` from stored `historyId`; on 404 re-backfill with a freshly computed window | `messagesDeleted` → tombstone |
 | `gdrive` | `files.list` in chosen folders, Google Docs exported as `text/plain` | `changes.list` with stored `pageToken` | `removed`/trashed → tombstone |
+
+#### 5.1.1 Gmail backfill window (D3)
+
+The window is never a stored or hard-coded date. It is computed from the
+current time every time a backfill starts:
+
+```python
+from datetime import timedelta
+
+GMAIL_BACKFILL = timedelta(days=30)
+
+def gmail_backfill_query(clock: Clock) -> str:
+    # clock.now() is timezone-aware UTC (datetime.now(UTC) in production,
+    # a controllable clock in tests/e2e). Gmail's after: accepts epoch seconds,
+    # which sidesteps the mailbox's timezone entirely.
+    since = clock.now() - GMAIL_BACKFILL
+    return f"after:{int(since.timestamp())}"
+```
+
+- Uses the injected `Clock` port (`metis_contracts.ports.Clock`), which wraps
+  `datetime.now(UTC)`, rather than calling `datetime.now()` inline. Same
+  real-time behaviour, and e2e tests can pin the clock.
+- "Past month" = rolling 30 days, not calendar month (no month-length edge cases).
+- First sync stores the newest `historyId`; after that only `history.list`
+  runs, so mail is never re-imported. Re-backfill (expired `historyId`,
+  reconnect) recomputes the window from *now*.
+- Mail older than 30 days is not imported. Widening the window later is a
+  config value, not a code change.
 
 Ponytail: polling first for local folders. FSEvents watcher only if polling
 latency is a real complaint.
@@ -142,13 +173,20 @@ Same pass fixes the memory gap: `_record_memory` switches to
 
 ### 5.4 Embeddings
 
-Desktop must ship a real embedding model. Options:
+**Decision D2: Ollama.** Reuses the existing `LocalEmbedder`
+(`/api/embed` over loopback, dimension checked on every response).
 
-- **A (recommended): in-process ONNX** via `fastembed` with a small model
-  (e.g. `bge-small-en-v1.5`, 384 dim, ~130 MB). Weights fetched at install time
-  pinned by SHA-256, same as speech weights (ADR 0004 §5). No extra app for the user.
-- B: existing `LocalEmbedder` (Ollama). Zero new code, but user must install
-  Ollama and pull a model.
+- Ollama runs natively on macOS, Windows and Linux; the user installs it once.
+- Default model `nomic-embed-text` (768 dim, ~270 MB). Set by the desktop
+  supervisor as `METIS_LOCAL_EMBED_MODEL`; user can override.
+- Embedder selection is **decoupled from the LLM engine**: new
+  `METIS_EMBED_ENGINE` (`auto|fixture|local`), so local embeddings don't force
+  local extraction. Today `build_embedder()` follows `METIS_INFERENCE_ENGINE`.
+- First run: desktop probes `127.0.0.1:11434`. Missing Ollama → Sources screen
+  says "install Ollama for semantic search" with the download link; missing
+  model → offers `ollama pull nomic-embed-text`. Until then, keyword-only.
+- Ollama down mid-sync → chunks stay `pending_embedding`, retried by the
+  outbox; FTS5 keyword search still works on them.
 
 Fixture embedder stays for tests only. If desktop is running fixture or the
 model is missing, UI must say "keyword search only" (rule 3, honest states).
@@ -206,21 +244,83 @@ excerpt as the user's own decision.
   and open the original (file path reveal, Gmail/Drive deep link).
 - Index status: "Indexing 1,240 / 8,000", "keyword only", "needs re-auth".
 
-## 10. Delivery phases
+## 10. Cross-platform: macOS, Windows, Linux (D5)
+
+Metis ships as a **native installer per OS**. Everything in the stack is
+already portable:
+
+| Layer | macOS | Windows | Linux |
+| --- | --- | --- | --- |
+| Shell (Tauri v2) | `.app` / `.dmg` | `.msi` / NSIS `.exe` | `.deb` / `.AppImage` |
+| Backend sidecar (PyInstaller, per target triple, `build.sh` already handles `.exe`) | arm64 + x86_64 | x86_64 | x86_64 |
+| Embeddings | Ollama | Ollama | Ollama |
+| Secrets | Keychain | Credential Locker | Secret Service |
+| App data | `~/Library/Application Support/Metis` | `%APPDATA%\Metis` | `$XDG_DATA_HOME/metis` |
+
+Work needed:
+- `tauri.conf.json` `bundle.targets` is `["app"]` (macOS only) → add
+  `dmg, msi, nsis, deb, appimage`.
+- Rust shell OS-specific code: audio capture, global hotkey, text insertion
+  (`insertion.rs`), HUD window behaviour. Each needs a Windows/Linux path or an
+  honest "not supported on this OS" state. Linux Wayland restricts global
+  hotkeys and synthetic typing — likely degraded there.
+- Paths through `pathlib` only; default exclude list per OS (§5.1).
+- CI matrix (GitHub Actions `macos-14`, `windows-latest`, `ubuntu-22.04`)
+  builds and tests each installer. PyInstaller cannot cross-compile, so each OS
+  must build its own sidecar.
+
+### 10.1 Docker — where it fits, where it doesn't
+
+Requested: use Docker for multi-OS support. **Recommendation: do not run the
+end-user app in Docker.** Reasons:
+
+- On macOS and Windows, Docker runs a Linux VM. Your files, microphone,
+  keychain, global hotkeys and text insertion are all on the host. A container
+  can't reach them without bind mounts and device passthrough, and Windows and
+  macOS don't support microphone passthrough at all.
+- Users would have to install Docker Desktop (~2 GB plus a VM that keeps
+  several GB of RAM reserved). That's the memory cost D1 was trying to avoid.
+  Docker Desktop also needs a paid licence at larger companies.
+- Ollama inside Docker on a Mac gets no GPU (Metal), so embeddings are much slower.
+
+Docker **is** used for:
+1. **Reproducible Linux builds.** A `Dockerfile.build` pins Debian, Python,
+   uv, Rust and the Tauri dependencies to produce the Linux sidecar and
+   `.deb`/`.AppImage`. CI and devs get identical artefacts.
+2. **Headless dev/test stack.** `docker compose up` runs the API, worker,
+   speech (existing `services/speech/Dockerfile`) and Ollama with fixture
+   adapters, so contributors on any OS can run backend tests without a local
+   Python setup. Dev only; never shipped to users.
+3. **Optional power-user mode (later, not in scope).** Linux users who want
+   the backend in a container on a home server. Single-device rule (D4) still holds.
+
+## 11. Delivery phases
 
 | Phase | Scope | Gate |
 | --- | --- | --- |
-| 0 | Fix today: wire span-window chunking into `_record_memory`; desktop uses a real embedder or shows "keyword only" | retrieval eval (`evaluate.py`) improves on paraphrase queries |
+| 0 | Fix today: wire span-window chunking into `_record_memory`; `METIS_EMBED_ENGINE` + Ollama probe in desktop, "keyword only" otherwise | retrieval eval (`evaluate.py`) improves on paraphrase queries |
+| 0b | Cross-platform builds: bundle targets, CI matrix, `Dockerfile.build` for Linux, dev `docker-compose.yml` | installers build and launch on all three OSes; backend tests pass in compose |
 | 1 | Contracts (Connector, SourceOrigin, CorpusChunk, events); sqlite-vec store; corpus lane + RRF | unit + eval green; memory-only behaviour unchanged |
 | 2 | `local_folder` connector + parsers + chunker + Sources UI | index a 5k-file folder; incremental resync < 30 s with no changes |
 | 3 | Gmail connector + OAuth + keychain | backfill 1 year; history sync; delete propagates |
 | 4 | Drive connector | changes feed; Docs export; trash propagates |
 | 5 | Opt-in extraction from corpus ("make tasks from this") | budget + proposal review path, no auto-created tasks |
 
-## 11. Open questions
+## 12. Decisions (2026-11-21)
 
-- **Q1** Hosted web/AWS stack: keep as phone-capture inbox that syncs to desktop, or retire? Affects whether contracts must stay DynamoDB-compatible for new entities.
-- **Q2** Embedding: fastembed in-process (A) vs Ollama (B)? Affects bundle size (~130 MB) and onboarding.
-- **Q3** Default Gmail backfill window and label filter (all mail vs Inbox/Sent only).
-- **Q4** Multi-device: is the desktop install the single source of truth, or do we need sync between Macs later? (This design assumes single device.)
-- **Q5** Windows/Linux in scope, or macOS only for now? (Keychain + folder defaults differ.)
+- **D1** Hosted web/AWS stack (phone-capture inbox) retired. Teardown of the
+  deployed AWS resources is a separate, explicitly approved ops step.
+- **D2** Embeddings via Ollama (`nomic-embed-text` default), see §5.4.
+- **D3** Gmail backfill = rolling last 30 days, computed from the current time
+  at every backfill (§5.1.1); then incremental via `historyId`.
+- **D4** Single device. The desktop install is the only source of truth; no
+  cross-device sync.
+- **D5** macOS, Windows and Linux. Native installers; Docker only for builds and
+  the dev stack (§10.1).
+
+## 13. Still open
+
+- **Q6** With AWS retired, LLM extraction on desktop has no Bedrock. Choose:
+  local Ollama LLM (free, slower, weaker), or direct Anthropic API with a
+  user-supplied key stored in the OS credential store.
+- **Q7** Linux Wayland: accept degraded hotkey/insertion, or target X11 only at first?

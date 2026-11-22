@@ -10,16 +10,17 @@ needs and the services do not provide yet:
 Readiness records (stdout, one line each, never secrets):
   api    METIS_API_PORT=<n>            (service-owned)
   speech {"event":"listening","protocol":1,"host","port","pid"}   (service-owned)
-  worker {"event":"started","service":"worker","protocol":1,"pid"}  (service-owned)
+  worker {"event":"started","service":"worker","protocol":1,"pid"}  (service-owned; emitted
+         once by the supervisor even when it runs several worker processes)
 """
 
 from __future__ import annotations
 
+import multiprocessing
 import os
 import signal
 import sys
 import threading
-import types
 from collections.abc import Callable
 
 SERVICES = ("api", "worker", "speech")
@@ -57,25 +58,15 @@ def run_speech(argv: list[str]) -> int:
 def run_worker(argv: list[str]) -> int:
     from metis_pipeline import local_worker
 
-    stop = threading.Event()
-    original_stop = local_worker._request_stop
-
-    def request_stop(signum: int, frame: object) -> None:
-        original_stop(signum, frame)  # type: ignore[arg-type]
-        stop.set()
-
-    def stop_now() -> None:
-        local_worker._stop = True
-        stop.set()
-
-    local_worker._request_stop = request_stop
-    # Idle sleeps wake immediately on stop instead of finishing a 2-10s nap.
-    local_worker.time = types.SimpleNamespace(sleep=lambda seconds: stop.wait(seconds))  # type: ignore[assignment]
-    _on_stdin_eof(stop_now)
+    # Stops the loop, or in multi-process mode the supervisor and every child.
+    _on_stdin_eof(local_worker.request_stop)
     return local_worker.main(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A frozen build re-executes itself for each spawned worker process; this
+    # turns those re-executions into the child instead of a second CLI run.
+    multiprocessing.freeze_support()
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0] not in SERVICES:
         sys.stderr.write(f"usage: metis-backend {'|'.join(SERVICES)} [service args]\n")

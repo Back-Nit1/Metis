@@ -75,6 +75,20 @@ CREATE TABLE IF NOT EXISTS outbox (
 CREATE INDEX IF NOT EXISTS idx_outbox_ready ON outbox (state, available_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_idem ON outbox (user_id, event_type, idempotency_key);
 
+-- Change feed (D10): one row per entity write or tombstone, appended in the
+-- same transaction. Clients long-poll `seq > cursor` to learn what to re-read.
+CREATE TABLE IF NOT EXISTS changes (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      TEXT    NOT NULL,
+    kind         TEXT    NOT NULL,
+    id           TEXT    NOT NULL,
+    revision     INTEGER,
+    tombstoned   INTEGER NOT NULL DEFAULT 0,
+    recorded_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_changes_user ON changes (user_id, seq);
+
 -- A repeated successful mutation returns the stored response instead of doing
 -- the work twice.
 CREATE TABLE IF NOT EXISTS idempotency (

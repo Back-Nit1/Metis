@@ -18,13 +18,15 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from metis_contracts import (
+    INGEST_EVENT_TYPES,
     AdapterMode,
     ErrorCode,
     Event,
@@ -45,6 +47,7 @@ from metis_contracts import (
     new_id,
     settings,
 )
+from metis_contracts.api import Change, LaneStats, QueueStats
 from metis_contracts.common import Record
 from metis_contracts.entities import ENTITY_MODELS, AvailabilityBlock, Job, Notification, Reminder
 
@@ -52,6 +55,24 @@ SCHEMA = (Path(__file__).parent / "schema.sql").read_text()
 
 #: Kinds whose change must invalidate an in-flight or proposed plan.
 PLANNING_RELEVANT_KINDS = frozenset({"task", "event", "availability", "preferences", "project"})
+
+#: Kinds that never reach the change feed: queue and ledger plumbing, not user data.
+CHANGE_FEED_SKIP_KINDS = frozenset({"outbox", "budget_reservation", "usage_day"})
+
+Lane = Literal["all", "interactive", "ingest"]
+_INGEST_TYPES = tuple(sorted(INGEST_EVENT_TYPES))
+_INGEST_MARKS = ",".join("?" for _ in _INGEST_TYPES)
+#: SQL `CASE` labelling an outbox row's lane; params are ``_INGEST_TYPES``.
+_LANE_SQL = f"CASE WHEN event_type IN ({_INGEST_MARKS}) THEN 'ingest' ELSE 'interactive' END"
+
+
+def _lane_filter(lane: Lane) -> tuple[str, tuple[str, ...]]:
+    if lane == "ingest":
+        return f"AND event_type IN ({_INGEST_MARKS})", _INGEST_TYPES
+    if lane == "interactive":
+        return f"AND event_type NOT IN ({_INGEST_MARKS})", _INGEST_TYPES
+    return "", ()
+
 
 #: Denormalised query columns, per kind. Everything else lives in the JSON body.
 _QUERY_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -125,7 +146,20 @@ class SqliteStateStore:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(SCHEMA)
+        self._apply_schema()
+
+    def _apply_schema(self) -> None:
+        """Several worker processes may open a fresh file at once. Switching it
+        to WAL can report "locked" without waiting on the busy handler, so retry
+        briefly rather than crash a sibling's startup."""
+        for attempt in range(50):
+            try:
+                self._conn.executescript(SCHEMA)
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc) or attempt == 49:
+                    raise
+                time.sleep(0.1)
 
     # ------------------------------------------------------------------ #
     # transaction
@@ -249,7 +283,26 @@ class SqliteStateStore:
                 json.dumps(body, sort_keys=True),
             ),
         )
+        self._append_change_locked(conn, stored.user_id, kind, stored.id, new_revision, tombstoned=False)
         return stored
+
+    def _append_change_locked(
+        self,
+        conn: sqlite3.Connection,
+        user_id: str,
+        kind: str,
+        entity_id: str,
+        revision: int | None,
+        *,
+        tombstoned: bool,
+    ) -> None:
+        if kind in CHANGE_FEED_SKIP_KINDS:
+            return
+        conn.execute(
+            """INSERT INTO changes (user_id, kind, id, revision, tombstoned, recorded_at)
+               VALUES (?,?,?,?,?,?)""",
+            (user_id, kind, entity_id, revision, int(tombstoned), self._clock.now().isoformat()),
+        )
 
     def _append_outbox_locked(self, conn: sqlite3.Connection, event: OutboxEvent) -> None:
         body = event.model_dump(mode="json")
@@ -528,23 +581,51 @@ class SqliteStateStore:
     # outbox dispatcher support
     # ------------------------------------------------------------------ #
 
-    def claim_outbox(self, *, owner: str, limit: int, lease_seconds: int) -> list[OutboxEvent]:
+    def claim_outbox(
+        self,
+        *,
+        owner: str,
+        limit: int,
+        lease_seconds: int,
+        lane: Lane = "all",
+        max_in_flight: int | None = None,
+    ) -> list[OutboxEvent]:
         """Lease pending events. An expired lease is reclaimable, which is how
-        a crashed dispatcher's work is recovered."""
+        a crashed dispatcher's work is recovered.
+
+        ``lane`` restricts the claim to ingest or interactive event types.
+        ``max_in_flight`` caps live leases across *all* workers of that lane:
+        the count and the claim share one ``BEGIN IMMEDIATE``, so two processes
+        cannot both see the same headroom.
+        """
         now = self._clock.now()
         cutoff = now.isoformat()
         expires = (now + timedelta(seconds=lease_seconds)).isoformat()
+        lane_sql, lane_params = _lane_filter(lane)
         with self._lock:
             self._conn.execute("BEGIN IMMEDIATE")
             try:
-                rows = self._conn.execute(
-                    """SELECT * FROM outbox
-                       WHERE state IN ('pending','failed','leased')
-                         AND available_at <= ?
-                         AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
-                       ORDER BY available_at LIMIT ?""",
-                    (cutoff, cutoff, max(1, min(limit, 100))),
-                ).fetchall()
+                bounded = max(1, min(limit, 100))
+                if max_in_flight is not None:
+                    (leased,) = self._conn.execute(
+                        f"""SELECT COUNT(*) FROM outbox
+                            WHERE state='leased' AND lease_expires_at > ? {lane_sql}""",
+                        (cutoff, *lane_params),
+                    ).fetchone()
+                    bounded = min(bounded, max(0, max_in_flight - int(leased)))
+                rows = (
+                    self._conn.execute(
+                        f"""SELECT * FROM outbox
+                            WHERE state IN ('pending','failed','leased')
+                              AND available_at <= ?
+                              AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+                              {lane_sql}
+                            ORDER BY available_at LIMIT ?""",
+                        (cutoff, cutoff, *lane_params, bounded),
+                    ).fetchall()
+                    if bounded
+                    else []
+                )
                 claimed: list[OutboxEvent] = []
                 for row in rows:
                     self._conn.execute(
@@ -611,13 +692,86 @@ class SqliteStateStore:
                 (state, failure, error, available_at, now.isoformat(), user_id, event_id),
             )
 
-    def list_dead_letters(self, limit: int = 50) -> list[OutboxEvent]:
+    def list_dead_letters(self, limit: int = 50, *, user_id: str | None = None) -> list[OutboxEvent]:
+        """Dead-lettered events, newest first. ``user_id=None`` is the operator view."""
+        owner_sql, params = ("AND user_id=?", (user_id,)) if user_id is not None else ("", ())
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM outbox WHERE state='dead_letter' ORDER BY updated_at DESC LIMIT ?",
-                (limit,),
+                f"SELECT * FROM outbox WHERE state='dead_letter' {owner_sql} ORDER BY updated_at DESC LIMIT ?",
+                (*params, limit),
             ).fetchall()
         return [self._outbox_from_row(r) for r in rows]
+
+    def requeue_outbox(self, user_id: str, event_id: str) -> bool:
+        """Send one of the owner's dead letters back to the queue with a fresh
+        retry budget. False when it is not (or no longer) dead-lettered."""
+        now = self._clock.now().isoformat()
+        with self._lock:
+            cur = self._conn.execute(
+                """UPDATE outbox SET state='pending', attempts=0, failure=NULL, error_message=NULL,
+                       lease_owner=NULL, lease_expires_at=NULL, available_at=?, updated_at=?
+                   WHERE user_id=? AND id=? AND state='dead_letter'""",
+                (now, now, user_id, event_id),
+            )
+        return cur.rowcount == 1
+
+    def queue_stats(self, user_id: str | None = None) -> QueueStats:
+        """Per-lane counts. A lease that has expired is reclaimable, so it is
+        reported as pending, not as in flight."""
+        now = self._clock.now().isoformat()
+        owner_sql, owner_params = ("AND user_id=?", (user_id,)) if user_id is not None else ("", ())
+        with self._lock:
+            rows = self._conn.execute(
+                f"""SELECT {_LANE_SQL} AS lane,
+                        CASE WHEN state='leased' AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+                             THEN 'pending' ELSE state END AS bucket,
+                        COUNT(*) AS n
+                    FROM outbox
+                    WHERE state IN ('pending','leased','failed','dead_letter') {owner_sql}
+                    GROUP BY lane, bucket""",
+                (*_INGEST_TYPES, now, *owner_params),
+            ).fetchall()
+        counts: dict[str, dict[str, int]] = {"interactive": {}, "ingest": {}}
+        for row in rows:
+            counts[row["lane"]][row["bucket"]] = int(row["n"])
+        return QueueStats(
+            lanes=[
+                LaneStats(lane="interactive", **counts["interactive"]),
+                LaneStats(lane="ingest", **counts["ingest"]),
+            ]
+        )
+
+    # ------------------------------------------------------------------ #
+    # change feed
+    # ------------------------------------------------------------------ #
+
+    def list_changes(self, user_id: str, *, after: int, limit: int = 500) -> tuple[list[Change], int]:
+        """Changes with ``seq > after``, oldest first, and the cursor to pass
+        next time: the last seq returned, or the current max when none."""
+        bounded = max(1, min(limit, 500))
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT seq, kind, id, revision, tombstoned FROM changes
+                   WHERE user_id=? AND seq > ? ORDER BY seq LIMIT ?""",
+                (user_id, after, bounded),
+            ).fetchall()
+        changes = [
+            Change(
+                seq=int(r["seq"]),
+                kind=r["kind"],
+                id=r["id"],
+                revision=r["revision"],
+                tombstoned=bool(r["tombstoned"]),
+            )
+            for r in rows
+        ]
+        cursor = changes[-1].seq if changes else max(after, self.max_change_seq(user_id))
+        return changes, cursor
+
+    def max_change_seq(self, user_id: str) -> int:
+        with self._lock:
+            row = self._conn.execute("SELECT MAX(seq) FROM changes WHERE user_id=?", (user_id,)).fetchone()
+        return int(row[0] or 0)
 
     # ------------------------------------------------------------------ #
     # jobs
@@ -858,10 +1012,23 @@ class SqliteStateStore:
         """Remove application access immediately. Object/vector purge is a
         separate resumable job."""
         with self._lock:
-            self._conn.execute(
-                "UPDATE records SET tombstoned=1, updated_at=? WHERE user_id=? AND kind=? AND id=?",
-                (self._clock.now().isoformat(), user_id, kind, entity_id),
-            )
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                cur = self._conn.execute(
+                    """UPDATE records SET tombstoned=1, updated_at=?
+                       WHERE user_id=? AND kind=? AND id=? RETURNING revision""",
+                    (self._clock.now().isoformat(), user_id, kind, entity_id),
+                )
+                row = cur.fetchone()
+                cur.fetchall()
+                if row is not None:
+                    self._append_change_locked(
+                        self._conn, user_id, kind, entity_id, int(row[0]), tombstoned=True
+                    )
+                self._conn.execute("COMMIT")
+            except BaseException:
+                self._conn.execute("ROLLBACK")
+                raise
 
     def purge(self, user_id: str, kind: str, entity_id: str) -> None:
         """Hard delete after the async purge job completes."""

@@ -10,12 +10,14 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
+import os
 import struct
 from collections.abc import Sequence
 from typing import Any
 
+from langchain_core.embeddings import Embeddings
 from metis_contracts import AdapterMode, ErrorCode, MetisError, settings
-from metis_pipeline.local_llm import LocalConfig, OllamaHttp, inference_engine
+from metis_pipeline.local_llm import LocalConfig, inference_engine
 
 log = logging.getLogger("metis.retrieval.embedder")
 
@@ -44,7 +46,28 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
     return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
 
 
-class FixtureEmbedder:
+class _Embedder(Embeddings):
+    """LangChain ``Embeddings`` over our ``embed`` port (D7).
+
+    ``semantic`` says honestly whether vectors carry meaning: a fixture hash
+    does not, and retrieval then runs keyword-only and says so.
+    """
+
+    semantic = True
+    model_id: str
+    dimensions: int
+
+    def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        raise NotImplementedError
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self.embed(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed([text])[0]
+
+
+class FixtureEmbedder(_Embedder):
     """Deterministic hashed embedding for local mode and tests.
 
     Not semantically meaningful across paraphrases — it is a stand-in so the
@@ -54,6 +77,7 @@ class FixtureEmbedder:
 
     mode = AdapterMode.FIXTURE
     model_id = "fixture-embed-v1"
+    semantic = False
 
     def __init__(self, dimensions: int = 64) -> None:
         self.dimensions = dimensions
@@ -72,7 +96,7 @@ class FixtureEmbedder:
         return vectors
 
 
-class BedrockEmbedder:
+class BedrockEmbedder(_Embedder):
     """Amazon Titan Text Embeddings via Bedrock.
 
     The output dimension and normalisation are explicit configuration, stored
@@ -119,15 +143,18 @@ class BedrockEmbedder:
         return -(-tokens * rate // 1000)
 
 
-class LocalEmbedder:
-    """Ollama ``/api/embed`` over loopback. Dimension is learned from the first
-    response and checked on every later one, so a model swap cannot silently
-    mix vector spaces."""
+class LocalEmbedder(_Embedder):
+    """Ollama embeddings over loopback via ``langchain_ollama.OllamaEmbeddings``.
+
+    Dimension is learned from the first response and checked on every later
+    one, so a model swap cannot silently mix vector spaces."""
 
     mode = AdapterMode.LOCAL
     MAX_BATCH = 32
 
     def __init__(self, config: LocalConfig | None = None) -> None:
+        from langchain_ollama import OllamaEmbeddings
+
         cfg = config or LocalConfig.from_env()
         if not cfg.embed_model:
             raise MetisError(
@@ -136,8 +163,12 @@ class LocalEmbedder:
             )
         self.model_id = cfg.embed_model
         self._dimensions: int | None = None
-        self._http = OllamaHttp(cfg.endpoint)
-        self._timeout = settings().limits.model_timeout_seconds
+        # trust_env=False: a loopback call must never be routed through a proxy.
+        self._client = OllamaEmbeddings(
+            model=cfg.embed_model,
+            base_url=cfg.endpoint,
+            client_kwargs={"timeout": settings().limits.model_timeout_seconds, "trust_env": False},
+        )
 
     @property
     def dimensions(self) -> int:
@@ -150,14 +181,19 @@ class LocalEmbedder:
         vectors: list[list[float]] = []
         for i in range(0, len(texts), self.MAX_BATCH):
             batch = list(texts[i : i + self.MAX_BATCH])
-            reply = self._http.call("/api/embed", {"model": self.model_id, "input": batch}, self._timeout)
-            got = reply.get("embeddings")
+            try:
+                got = self._client.embed_documents(batch)
+            except Exception as exc:
+                # Ollama down or model not pulled: transient, retried by the outbox.
+                raise MetisError(
+                    ErrorCode.PROVIDER_UNAVAILABLE, f"local embedding call failed: {exc}"[:500]
+                ) from exc
             if not isinstance(got, list) or len(got) != len(batch):
                 raise MetisError(
                     ErrorCode.VALIDATION_FAILED, "local embedding model returned the wrong vector count"
                 )
             for vec in got:
-                if not isinstance(vec, list) or not vec:
+                if not isinstance(vec, Sequence) or not vec:
                     raise MetisError(ErrorCode.VALIDATION_FAILED, "local embedding vector is empty")
                 if self._dimensions is None:
                     self._dimensions = len(vec)
@@ -170,8 +206,34 @@ class LocalEmbedder:
         return vectors
 
 
+EMBED_ENGINES = ("auto", "fixture", "local")
+
+
+def embed_engine() -> str:
+    """``METIS_EMBED_ENGINE``, decoupled from the LLM engine (spec §5.4).
+
+    ``auto``: local when ``METIS_LOCAL_EMBED_MODEL`` is set, else follow
+    ``METIS_INFERENCE_ENGINE`` as before.
+    """
+    engine = (os.environ.get("METIS_EMBED_ENGINE") or "auto").strip().lower()
+    if engine not in EMBED_ENGINES:
+        raise ValueError(f"METIS_EMBED_ENGINE must be one of {EMBED_ENGINES}; got {engine!r}")
+    if engine == "auto":
+        return "local" if os.environ.get("METIS_LOCAL_EMBED_MODEL") else inference_engine()
+    return engine
+
+
+def semantic_available(embedder: Any) -> bool:
+    """True only when vectors come from a real model, never a fixture."""
+    return (
+        embedder is not None
+        and getattr(embedder, "mode", None) is not AdapterMode.FIXTURE
+        and getattr(embedder, "semantic", True)
+    )
+
+
 def build_embedder() -> Any:
-    engine = inference_engine()
+    engine = embed_engine()
     if engine == "cloud":
         return BedrockEmbedder()
     if engine == "local":

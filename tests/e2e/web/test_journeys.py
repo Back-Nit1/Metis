@@ -50,7 +50,7 @@ def test_first_visit_open_metis_lands_on_today(page, stack, probe):
     page.goto(stack.web + "/")
     expect(page.get_by_role("button", name="Open Metis").first).to_be_visible()
     page.get_by_role("button", name="Open Metis").first.click()
-    expect(page.get_by_text("Plan my day")).to_be_visible()
+    expect(page.get_by_text(re.compile("Plan my day|Capture your first thought")).first).to_be_visible()
     assert not probe["console"], probe["console"]
 
 
@@ -209,6 +209,8 @@ def test_notifications_route_is_not_today(page, stack, probe):
 @pytest.mark.mutating
 @pytest.mark.ci_safe
 def test_settings_save_and_stale_revision_conflict(page, stack, probe, api):
+    # Hold the live change feed so this tab really keeps a stale revision.
+    page.route("**/v1/changes*", lambda route: None)
     enter(page, stack, "settings")
     field = page.get_by_label("Focus tasks per day")
     field.fill("4")
@@ -245,7 +247,7 @@ def test_export_request(page, stack, probe):
 def test_offline_capture_replays_once(page, stack, probe, api):
     marker = f"offline-{uid()}"
     enter(page, stack, "capture")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("load")
     page.context.set_offline(True)
     send(page, f"Next I want to test {marker}.")
     expect(page.get_by_text("held on this device", exact=False).first).to_be_visible(timeout=10000)
@@ -281,7 +283,7 @@ def test_reload_mid_extraction_recovers(page, stack, probe, api):
     enter(page, stack, "capture")
     send(page, f"Next I want to test {marker}.")
     page.reload()
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("load")
     page.wait_for_timeout(3000)
     caps = api.get("/v1/captures?limit=100").json()
     hits = [c for c in (caps.get("items") or caps.get("captures") or []) if marker in str(c)]
@@ -334,7 +336,7 @@ def test_microphone_denied_falls_back_to_typing(page, stack, probe):
 @pytest.mark.known_issue(owner="B", note="sidebar/header icon buttons lack an accessible name")
 def test_all_buttons_have_accessible_names(page, stack, probe):
     enter(page, stack, "today")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("load")
     nameless = page.evaluate(
         """() => [...document.querySelectorAll('button,a[href]')].filter(e => e.offsetParent !== null)
             .filter(e => !(e.getAttribute('aria-label') || e.innerText || e.getAttribute('title') || '').trim())

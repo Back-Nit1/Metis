@@ -119,6 +119,9 @@ def stack():
         "METIS_SQLITE_PATH": f"{tmp}/metis.db",
         "METIS_LOCAL_OBJECTS_DIR": f"{tmp}/objects",
         "METIS_RATE_PER_MINUTE": "100000",
+        "METIS_RATE_PER_HOUR": "1000000",
+        "METIS_RATE_GLOBAL_PER_MINUTE": "100000",
+        "METIS_CONNECT_RATE_PER_MINUTE": "100000",
         "METIS_CORS_ORIGINS": f"http://localhost:{web_port}",
     }
     env.pop("VIRTUAL_ENV", None)

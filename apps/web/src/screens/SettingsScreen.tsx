@@ -115,7 +115,7 @@ export function SettingsScreen() {
                 </div>
                 {preferences && (
                   <p className="mt-2 text-xs text-muted" role="status">
-                    Server state: <strong className="font-semibold text-ink">{dailyScheduleLabel(preferences).label}</strong>
+                    <strong className="font-semibold text-ink">{dailyScheduleLabel(preferences).label}</strong>
                   </p>
                 )}
               </fieldset>
@@ -241,7 +241,7 @@ export function SettingsScreen() {
       </div>
 
       <details className="group rounded-lg border border-line bg-surface p-4 md:p-5">
-        <summary className="flex min-h-8 cursor-pointer items-center justify-between font-serif text-lg font-semibold">
+        <summary className="flex min-h-11 cursor-pointer items-center justify-between font-serif text-lg font-semibold md:min-h-8">
           Diagnostics
           <span className="font-sans text-xs font-normal text-muted">for troubleshooting</span>
         </summary>

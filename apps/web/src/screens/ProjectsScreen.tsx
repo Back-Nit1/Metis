@@ -42,7 +42,7 @@ function EditProject({ project, onSaved }: { project: Project; onSaved: () => vo
 
   return (
     <details className="rounded-lg border border-line bg-surface p-4">
-      <summary className="min-h-8 cursor-pointer text-sm font-medium">Edit project</summary>
+      <summary className="min-h-11 cursor-pointer text-sm font-medium md:min-h-8">Edit project</summary>
       <div className="mt-3 flex flex-col gap-3">
         <Field label="Title">
           <input className={inputClass} value={form.title} onChange={(e) => set({ title: e.target.value })} />
@@ -138,13 +138,13 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
             </div>
             <p className="text-xs text-muted">No next action is invented here: the server did not return one.</p>
             {packet.evidence.length > 0 && (
-              <p className="flex flex-wrap gap-1.5">{packet.evidence.map((e, i) => <EvidenceLink key={i} evidence={e} />)}</p>
+              <p className="flex flex-wrap gap-1.5">{packet.evidence.map((e, i) => <EvidenceLink key={i} evidence={e} timezone={timezone} />)}</p>
             )}
           </div>
         )}
         {wp && (
           <details className="mt-4 text-sm">
-            <summary className="min-h-8 cursor-pointer font-medium">
+            <summary className="min-h-11 cursor-pointer font-medium md:min-h-8">
               Saved work packet {detail.work_packet_stale ? "(out of date)" : ""}
             </summary>
             {detail.work_packet_stale && (
@@ -187,7 +187,7 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
                   <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                     <Chip>{m.kind}</Chip>
                     <span>{timeLabel(m.evidence.recorded_at, timezone)}</span>
-                    <EvidenceLink evidence={m.evidence} />
+                    <EvidenceLink evidence={m.evidence} timezone={timezone} />
                   </p>
                 </li>
               ))}
@@ -216,7 +216,7 @@ export function ProjectsScreen() {
     <div className="flex flex-col gap-5">
       <PageHeader title="Projects" sub="Longer work, with what you recorded about it." />
       {projects.length === 0 ? (
-        <Empty icon="pin" title="No projects yet">Projects appear when a captured note is linked to one. This build cannot create one by hand.</Empty>
+        <Empty icon="pin" title="No projects yet">Projects appear here after a captured note is linked to one. Capture the project name and what you are trying to achieve so it can be reviewed and linked.</Empty>
       ) : (
         <ul className="flex flex-col gap-2">
           {projects.map((p) => (

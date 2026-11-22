@@ -57,12 +57,12 @@ export function buildPatch(p: Preferences, d: PrefsDraft): Record<string, unknow
 export function dailyScheduleLabel(p: Preferences): { label: string; tone: "good" | "warn" | "neutral" | "busy" } {
   switch (p.daily_schedule_state) {
     case "scheduled":
-      return { label: "Scheduled: the scheduler confirmed the daily plan", tone: "good" };
+      return { label: "Daily plans are confirmed with the scheduler.", tone: "good" };
     case "pending_schedule":
-      return { label: "Scheduling: not confirmed yet", tone: "busy" };
+      return { label: "Daily plans are not confirmed with the scheduler yet.", tone: "busy" };
     case "schedule_failed":
-      return { label: "Schedule failed: the daily plan will not run until this is fixed", tone: "warn" };
+      return { label: "Daily plan scheduling failed. It will not run until this is fixed.", tone: "warn" };
     default:
-      return { label: p.daily_planning_enabled ? "Not confirmed by the scheduler" : "Off", tone: "neutral" };
+      return { label: p.daily_planning_enabled ? "Daily plans are not confirmed with the scheduler yet." : "Off", tone: "neutral" };
   }
 }

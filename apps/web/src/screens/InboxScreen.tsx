@@ -81,7 +81,7 @@ export function InboxScreen() {
         ) : (
           <ul className="flex flex-col gap-2">
             {tasks.map((task) => (
-              <InboxTask key={task.id} task={task} busy={busy === task.id} onCommit={commit} />
+              <InboxTask key={task.id} task={task} busy={busy === task.id} timezone={timezone} onCommit={commit} />
             ))}
           </ul>
         )}
@@ -135,10 +135,12 @@ export function InboxScreen() {
 function InboxTask({
   task,
   busy,
+  timezone,
   onCommit,
 }: {
   task: Task;
   busy: boolean;
+  timezone: string;
   onCommit: (task: Task, deadline: string) => Promise<void>;
 }) {
   const [deadline, setDeadline] = useState(task.deadline_local_date ?? "");
@@ -150,7 +152,7 @@ function InboxTask({
           <span aria-hidden="true" className="font-semibold text-warn">? </span>
           {task.deadline_local_date ? `due ${task.deadline_local_date}` : "No deadline. Nothing was assumed."}
         </span>
-        {task.source_refs?.[0] && <EvidenceLink evidence={task.source_refs[0]} label={`from ${task.source_refs[0].source_id.slice(0, 12)}…`} />}
+        {task.source_refs?.[0] && <EvidenceLink evidence={task.source_refs[0]} recordedAt={task.created_at} timezone={timezone} />}
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <Field label="Deadline">

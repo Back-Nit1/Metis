@@ -24,6 +24,14 @@ export function timeLabel(iso: string | null | undefined, timezone: string): str
   }).format(new Date(iso));
 }
 
+export function shortDateLabel(iso: string, timezone?: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(timezone ? { timeZone: timezone } : {}),
+  }).format(new Date(iso));
+}
+
 export function bytes(count: number): string {
   if (count < 1024) return `${count} B`;
   if (count < 1024 * 1024) return `${(count / 1024).toFixed(0)} KB`;

@@ -76,7 +76,11 @@ export function SettingsScreen() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Settings" sub="Preferences, notifications, usage and your data." />
+      <PageHeader
+        title="Settings"
+        sub="Preferences, notifications, usage and your data."
+        action={<Button onClick={() => (window.location.hash = "#/sources")}>Sources and indexing</Button>}
+      />
 
       <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
         <Card>

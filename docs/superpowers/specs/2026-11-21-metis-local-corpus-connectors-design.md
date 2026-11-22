@@ -1,6 +1,6 @@
 # Metis local corpus + connectors — design
 
-Status: **draft** 2026-11-21, decisions D1–D5 recorded §12. Needs coordinator review (touches `packages/contracts/`).
+Status: **draft** 2026-11-21, decisions D1–D10 recorded §12, build notes §14. Needs coordinator review (touches `packages/contracts/`).
 Supersedes nothing yet; would become ADR 0006 once accepted.
 
 ## 1. Problem
@@ -39,7 +39,7 @@ Non-goals (this spec)
 
 | Surface | Role after this change |
 | --- | --- |
-| `apps/desktop` (Tauri, Rust) | Primary product. Window, HUD, capture, sidecar supervisor, folder picker, OAuth browser hand-off. |
+| `apps/desktop` (**Rust**, Tauri v2) | Primary product, written in Rust. The Rust shell owns the native layer. Window, HUD, capture, sidecar supervisor, folder picker, OAuth browser hand-off. |
 | `apps/web` (React build) | **Stays** — it is the desktop UI (`frontendDist: ../../web/dist`). Still runnable in a browser against the local API for dev. |
 | Hosted web + AWS stack | **Retired** (decision D1). No new features; teardown is a separate, explicit ops step. New entities need not be DynamoDB-compatible. |
 | Python backend sidecar | Owns connectors, parsing, chunking, embedding, sync jobs. Already has filesystem access. |
@@ -318,9 +318,62 @@ Docker **is** used for:
 - **D5** macOS, Windows and Linux. Native installers; Docker only for builds and
   the dev stack (§10.1).
 
+- **D6** The desktop app is **Rust** (Tauri v2). The React build is only its
+  view layer; native capability (audio, hotkeys, insertion, process
+  supervision, OS integration) stays in Rust.
+- **D7** **LangChain** is the retrieval vocabulary: `langchain-core`
+  (`BaseRetriever`, `Document`, `Embeddings`), `langchain-text-splitters`
+  (`RecursiveCharacterTextSplitter`) and `langchain-ollama`
+  (`OllamaEmbeddings`). Not `langchain-classic`/`langchain-community`: they
+  pull SQLAlchemy, LangSmith and hundreds of loaders into the bundled sidecar.
+  Rank fusion is the same weighted reciprocal-rank-fusion `EnsembleRetriever`
+  uses, implemented inside our own `HybridRetriever`.
+- **D8** **Hybrid retrieval everywhere.** Every search and every planner
+  evidence lookup runs semantic (vector cosine) **and** keyword (SQLite FTS5
+  BM25) search, then fuses them. Keyword search covers file names and paths
+  too (the `find -iname "*report*"` case), so a file is findable by name even
+  when its body never mentions the word. Every result is a **citation**: title,
+  path/URI, excerpt, character span, source id + version, and which matchers
+  hit (`semantic`, `keyword`).
+- **D9** **Queued ingestion with lanes and a dead-letter queue.** All data
+  streams (captures, files, PDFs, email, Drive) flow through the one
+  transactional outbox. Events are split into two lanes:
+  `interactive` (captures, extraction, reminders, plans) and `ingest`
+  (connector sync, file/email parsing, chunk embedding). Several Python worker
+  processes claim from the outbox with leases; the `ingest` lane has a global
+  in-flight cap so a 10k-file import can never starve reminders. Malformed
+  input (corrupt PDF, undecodable mail, unsupported type) is a permanent
+  failure and goes straight to `dead_letter`, no retries. Transient failures
+  (Ollama down) back off and retry, then dead-letter. The dead-letter queue can
+  be listed and retried from the API and the Sources screen.
+- **D10** **Background sync, never on the UI thread.**
+  - Backend: the worker re-syncs every active connector on an interval and
+    keeps the corpus at the current state of each stream.
+  - Frontend: a dedicated **Web Worker** (`sync.worker.ts`) long-polls
+    `GET /v1/changes?after=<cursor>` and posts coalesced change notices
+    (which kinds changed, queue counts) to the page. The page only re-reads
+    the data it is showing. No polling loops on the main thread.
+  - Change feed: a `changes` table (autoincrement sequence) appended in the
+    same transaction as every entity write and tombstone.
+
 ## 13. Still open
 
 - **Q6** With AWS retired, LLM extraction on desktop has no Bedrock. Choose:
   local Ollama LLM (free, slower, weaker), or direct Anthropic API with a
   user-supplied key stored in the OS credential store.
 - **Q7** Linux Wayland: accept degraded hotkey/insertion, or target X11 only at first?
+
+## 14. Build notes (first slice)
+
+Built in this order:
+1. Queue lanes, in-flight cap, multi-process worker (`--processes N`),
+   dead-letter list/retry API.
+2. Corpus: `local_folder` connector, parsers (text/markdown/code/PDF),
+   LangChain splitter + Ollama embeddings, corpus index (vectors + FTS5 over
+   content, title and path), `HybridRetriever`, citations in `/v1/search` and
+   planner evidence.
+3. Change feed + `sync.worker.ts` + Sources screen (folders, queue, dead letters).
+
+Deferred: Gmail/Drive connectors (need a Google OAuth client id and the
+verification decision in §8), `sqlite-vec` (exact float32 scan first; swap
+when a corpus is large enough to measure), Windows/Linux Rust ports (§10).

@@ -105,6 +105,21 @@ class Adapters:
             "schedule_store": mode_of(self.schedule_store) if self.schedule_store else "none",
             "memory_store": mode_of(self.memory_store) if self.memory_store else "none",
             "embedder": mode_of(self.embedder) if self.embedder else "none",
+            **self._search_mode(),
+        }
+
+    def _search_mode(self) -> dict[str, str]:
+        """Which embedder is wired and whether semantic search is real or keyword-only."""
+        try:
+            from metis_retrieval.embedder import semantic_available
+        except ImportError:
+            return {"semantic_search": "unavailable: metis_retrieval is not installed"}
+        if self.embedder is None:
+            return {"semantic_search": "keyword_only"}
+        return {
+            "embedder_engine": type(self.embedder).__name__,
+            "embedder_model": str(getattr(self.embedder, "model_id", "unknown")),
+            "semantic_search": "available" if semantic_available(self.embedder) else "keyword_only",
         }
 
 

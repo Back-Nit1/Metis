@@ -143,8 +143,7 @@ def search(body: SearchRequest, ctx: Context) -> SearchResponse:
     # Each search embeds the query (a paid call in cloud mode) outside the
     # reserve/settle gate, so it gets its own small ceiling.
     ctx.throttle("search", per_minute=max(1, settings().limits.api_rate_per_minute // 6))
-    retrieval = ctx.adapters.retrieval
-    memories, degraded = retrieval.retrieve_supporting_memories(
+    results, degraded = ctx.adapters.retrieval.search(
         ctx.user_id,
         query=body.query,
         project_id=body.project_id,
@@ -152,38 +151,18 @@ def search(body: SearchRequest, ctx: Context) -> SearchResponse:
         include_historical=body.include_historical,
     )
     kinds = {k.value for k in body.kinds}
-    results = [
-        SearchResult(
-            memory_id=memory.id,
-            kind=memory.kind,
-            content=memory.content,
-            score=score,
-            project_id=memory.project_id,
-            evidence=Evidence(
-                source_id=memory.source_refs[0].source_id,
-                source_version=memory.source_refs[0].source_version,
-                span_ref=memory.source_refs[0].span_ref,
-                memory_id=memory.id,
-                excerpt=memory.content[:2000],
-                recorded_at=memory.effective_at,
-                validity="historical"
-                if memory.kind.value in ("attempt", "work_log")
-                else memory.validity.value,
-            ),
-        )
-        for memory, score in memories
-        if not kinds or memory.kind.value in kinds
-    ]
-    mode_used = body.mode
-    if body.mode == "auto":
-        store = ctx.adapters.memory_store
-        mode_used = "hybrid" if getattr(store, "supports_lexical", False) else "semantic"
+    if kinds:  # corpus hits carry no memory kind, so a kind filter keeps memories only
+        results = [r for r in results if r.kind is not None and r.kind.value in kinds]
+    reasons = degraded.split("; ") if degraded else []
+    keyword_only = any(r.startswith("keyword search only") for r in reasons)
     return SearchResponse(
         results=results,
-        mode_used=mode_used,
-        index_available=degraded is None,
+        # What actually ran, whatever was asked for: search() always runs keyword
+        # matching and adds semantic matching only with a real embedding model.
+        mode_used="lexical" if keyword_only else "hybrid",
+        index_available=all(r.startswith("keyword search only") for r in reasons),
         index_stale=False,
-        degraded_reason=degraded,
+        degraded_reason=degraded[:300] if degraded else None,
     )
 
 

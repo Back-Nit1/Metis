@@ -64,6 +64,7 @@ _QUERY_COLUMNS: dict[str, tuple[str, ...]] = {
     "memory": ("project_id",),
     "proposal": ("state",),
     "project": ("state",),
+    "connector": ("state", "trigger_at"),
 }
 
 
@@ -200,7 +201,7 @@ class SqliteStateStore:
             "project_id": getattr(stored, "project_id", None),
             "local_date": _iso(getattr(stored, "local_date", None)),
             "deadline_date": _iso(getattr(stored, "deadline_local_date", None)),
-            "trigger_at": _iso(getattr(stored, "trigger_at", None)),
+            "trigger_at": _iso(getattr(stored, "trigger_at", None) or getattr(stored, "next_sync_at", None)),
         }
         allowed = _QUERY_COLUMNS.get(kind, ())
         cols = {
@@ -454,6 +455,21 @@ class SqliteStateStore:
         self, user_id: str, *, cursor: str | None = None, limit: int = 100
     ) -> Page[SourceArtifact]:
         return self._page("source", user_id, "", [], cursor=cursor, limit=limit)
+
+    def list_connectors(self, user_id: str, *, cursor: str | None = None, limit: int = 100) -> Page[Any]:
+        return self._page("connector", user_id, "", [], cursor=cursor, limit=limit)
+
+    def due_connector_ids(self, *, now: datetime, limit: int = 50) -> list[str]:
+        """Active connectors whose ``next_sync_at`` has passed, as ``user_id/id``."""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT user_id, id FROM records
+                   WHERE kind='connector' AND tombstoned=0 AND state='active'
+                     AND (trigger_at IS NULL OR trigger_at <= ?)
+                   ORDER BY trigger_at LIMIT ?""",
+                (now.isoformat(), limit),
+            ).fetchall()
+        return [f"{r['user_id']}/{r['id']}" for r in rows]
 
     def list_reminders(
         self, user_id: str, *, state: ReminderState | None = None, cursor: str | None = None, limit: int = 100

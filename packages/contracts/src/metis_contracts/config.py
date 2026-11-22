@@ -111,6 +111,20 @@ class Limits:
     job_max_attempts: int = field(default_factory=lambda: _env_int("METIS_JOB_MAX_ATTEMPTS", 5))
     job_lease_seconds: int = field(default_factory=lambda: _env_int("METIS_JOB_LEASE_SECONDS", 300))
     outbox_batch: int = field(default_factory=lambda: _env_int("METIS_OUTBOX_BATCH", 10))
+    #: Worker processes: 1 interactive + (n-1) ingest. Minimum 2.
+    worker_processes: int = field(default_factory=lambda: _env_int("METIS_WORKER_PROCESSES", 3))
+    #: Global cap on leased ingest-lane events across all workers (backpressure).
+    ingest_max_in_flight: int = field(default_factory=lambda: _env_int("METIS_INGEST_MAX_IN_FLIGHT", 4))
+    #: Longest a /v1/changes long-poll is held open.
+    changes_wait_seconds: int = field(default_factory=lambda: _env_int("METIS_CHANGES_WAIT_SECONDS", 25))
+    #: Max file size the corpus ingests; larger files are skipped, not dead-lettered.
+    corpus_max_file_bytes: int = field(
+        default_factory=lambda: _env_int("METIS_CORPUS_MAX_FILE_BYTES", 20 * 1024 * 1024)
+    )
+    #: Share of retrieval candidates the corpus lane may take (percent).
+    retrieval_corpus_share_pct: int = field(
+        default_factory=lambda: _env_int("METIS_RETRIEVAL_CORPUS_SHARE", 50)
+    )
 
     daily_micro_usd: int = field(default_factory=lambda: _env_int("METIS_DAILY_MICRO_USD", 500_000))
     monthly_micro_usd: int = field(default_factory=lambda: _env_int("METIS_MONTHLY_MICRO_USD", 10_000_000))

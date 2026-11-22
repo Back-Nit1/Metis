@@ -663,7 +663,7 @@ export interface Evidence {
   uri?: string | null;
   start_char?: number | null;
   end_char?: number | null;
-  matched?: "semantic" | "keyword"[];
+  matched?: ("semantic" | "keyword")[];
 }
 
 /** Owner-scoped export state. ``download_url`` exists only once the archive */

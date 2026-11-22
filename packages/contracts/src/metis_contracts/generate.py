@@ -124,7 +124,8 @@ def _ts_type(schema: dict[str, Any], model_names: set[str]) -> str:
     t = schema.get("type")
     if t == "array":
         inner = _ts_type(schema.get("items", {}), model_names) if schema.get("items") else "unknown"
-        return f"{inner}[]"
+        # A union item needs parentheses: `"a" | "b"[]` would mean `"a" | ("b"[])`.
+        return f"({inner})[]" if " | " in inner else f"{inner}[]"
     if t == "object":
         extra = schema.get("additionalProperties")
         if isinstance(extra, dict):

@@ -251,6 +251,11 @@ def test_bad_root_sets_error_honestly(tmp_path, state, clock):
     assert sync_connector(state, user_id=USER, connector_id="con_docs", clock=clock) == 0
     connector = state.get(USER, "connector", "con_docs")
     assert connector.status is ConnectorStatus.ERROR and "missing" in connector.last_error
+    (tmp_path / "missing").mkdir()
+    clock.advance(seconds=1)
+    sync_connector(state, user_id=USER, connector_id="con_docs", clock=clock)
+    healed = state.get(USER, "connector", "con_docs")
+    assert healed.status is ConnectorStatus.ACTIVE and healed.last_error is None
 
 
 def test_oversized_files_are_skipped_with_a_reason(tmp_path, state, clock, monkeypatch):

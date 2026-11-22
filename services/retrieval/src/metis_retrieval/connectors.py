@@ -249,8 +249,8 @@ def sync_connector(
 ) -> int:
     """One scan pass. Returns the number of events raised."""
     connector = state.get(user_id, "connector", connector_id)
-    if connector is None or connector.status is not ConnectorStatus.ACTIVE:
-        return 0  # removed or paused since the request
+    if connector is None or connector.status in (ConnectorStatus.PAUSED, ConnectorStatus.NEEDS_AUTH):
+        return 0  # removed or paused since the request; an ERROR connector may heal on a manual sync
     now = clock.now()
     cfg = connector.config
 

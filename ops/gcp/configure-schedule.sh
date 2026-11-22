@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Idempotently configure Metis VM power hours.
 #
-# The VM is off 04:00-11:30 Monday-Saturday and all day Sunday, in New York
-# local time. Cloud Scheduler calls the Compute API directly with OAuth; no
-# always-on function is needed merely to turn the VM on and off.
+# The VM is off 04:00-11:30 every day, in New York local time. Cloud Scheduler
+# calls the Compute API directly with OAuth; no always-on function is needed
+# merely to turn the VM on and off.
 set -euo pipefail
 
 PROJECT="${PROJECT:?set PROJECT to the GCP project id}"
@@ -76,12 +76,15 @@ upsert_job() {
     --max-backoff=5m
 }
 
-upsert_job metis-stop-morning "0 4 * * 1-6" stop \
-  "Stop Metis at 04:00 Monday-Saturday (America/New_York)"
-upsert_job metis-stop-sunday "0 0 * * 0" stop \
-  "Stop Metis at Sunday 00:00 (America/New_York)"
-upsert_job metis-start-day "30 11 * * 1-6" start \
-  "Start Metis at 11:30 Monday-Saturday (America/New_York)"
+upsert_job metis-stop-morning "0 4 * * *" stop \
+  "Stop Metis at 04:00 every day (America/New_York)"
+upsert_job metis-start-day "30 11 * * *" start \
+  "Start Metis at 11:30 every day (America/New_York)"
+
+# Removed policy: Sunday now follows the same morning-only shutdown window.
+if g scheduler jobs describe metis-stop-sunday --location="$REGION" >/dev/null 2>&1; then
+  g scheduler jobs delete metis-stop-sunday --location="$REGION"
+fi
 
 g scheduler jobs list --location="$REGION" \
   --filter='name~metis-(start|stop)' \

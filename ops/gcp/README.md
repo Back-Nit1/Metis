@@ -29,13 +29,12 @@ account with a custom role limited to `compute.instances.get`, `.start`, and
 
 | Job | Schedule | Effect |
 | --- | --- | --- |
-| `metis-stop-morning` | `0 4 * * 1-6` | stop at 04:00 Monday-Saturday |
-| `metis-stop-sunday` | `0 0 * * 0` | stop at Sunday midnight |
-| `metis-start-day` | `30 11 * * 1-6` | start at 11:30 Monday-Saturday |
+| `metis-stop-morning` | `0 4 * * *` | stop at 04:00 every day |
+| `metis-start-day` | `30 11 * * *` | start at 11:30 every day |
 
-The VM therefore remains off all Sunday and from 04:00 through 11:30 on the
-other six days. `automaticRestart` is disabled. Compute stop uses a clean guest
-OS shutdown, and the VM has an additional two-minute graceful-shutdown window.
+The VM therefore remains off from 04:00 through 11:30 every day, including
+Sunday. `automaticRestart` is disabled. Compute stop uses a clean guest OS
+shutdown, and the VM has an additional two-minute graceful-shutdown window.
 
 ## Monitoring
 

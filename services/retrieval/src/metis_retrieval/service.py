@@ -19,7 +19,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.documents import Document
 from metis_contracts import (
@@ -470,7 +470,7 @@ class _Hit:
             excerpt=chunk.content[:2000],
             recorded_at=(self.source.origin.modified_at if self.source.origin else None)
             or self.source.captured_at,
-            origin=chunk.origin if chunk.origin in ("file", "email", "drive") else "file",
+            origin=cast(Any, chunk.origin if chunk.origin in ("file", "email", "drive") else "file"),
             chunk_id=chunk.chunk_id,
             title=chunk.title[:500],
             uri=chunk.uri[:2000],

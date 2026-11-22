@@ -55,7 +55,6 @@ class _Embedder(Embeddings):
 
     semantic = True
     model_id: str
-    dimensions: int
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         raise NotImplementedError

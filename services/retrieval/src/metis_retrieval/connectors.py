@@ -356,11 +356,10 @@ def _upsert_file(
                     created_at=now,
                     updated_at=now,
                     kind=SourceKind.FILE,
-                    lifecycle=SourceLifecycle.PROCESSING,
                     capture_timezone="UTC",
                     captured_at=modified,
                     origin=origin,
-                    **(skipped if too_big else {}),
+                    **(skipped if too_big else {"lifecycle": SourceLifecycle.PROCESSING}),
                 ),
             )
         elif content_same and not full:

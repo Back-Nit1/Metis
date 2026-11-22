@@ -21,27 +21,27 @@ def sample(path: Path, now: datetime) -> dict[str, int | str]:
     uri = f"file:{path}?mode=ro"
     with sqlite3.connect(uri, uri=True, timeout=5) as conn:
         rows = conn.execute(
-            """SELECT state, available_at, lease_expires_at
+            """SELECT state, created_at, lease_expires_at
                  FROM outbox
                 WHERE state IN ('pending', 'leased', 'failed', 'dead_letter')"""
         ).fetchall()
 
     counts = {"pending": 0, "leased": 0, "failed": 0, "dead_letter": 0}
-    ready_times: list[datetime] = []
-    for state, available_at, lease_expires_at in rows:
-        available = parse_instant(available_at)
+    waiting_since: list[datetime] = []
+    for state, created_at, lease_expires_at in rows:
+        created = parse_instant(created_at)
         lease_expires = parse_instant(lease_expires_at)
         if state == "leased" and (lease_expires is None or lease_expires <= now):
             state = "pending"
         counts[state] += 1
-        if state in {"pending", "failed", "dead_letter"} and (available is None or available <= now):
-            ready_times.append(available or now)
+        if state in {"pending", "failed", "dead_letter"}:
+            waiting_since.append(created or now)
 
-    oldest_age = max(0, int((now - min(ready_times)).total_seconds())) if ready_times else 0
+    oldest_age = max(0, int((now - min(waiting_since)).total_seconds())) if waiting_since else 0
     return {
         "event": "metis_queue_stats",
         **counts,
-        "backlog": len(ready_times),
+        "backlog": len(waiting_since),
         "oldest_ready_age_seconds": oldest_age,
     }
 

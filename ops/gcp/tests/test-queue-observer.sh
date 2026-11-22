@@ -10,7 +10,7 @@ import sqlite3
 import sys
 
 with sqlite3.connect(sys.argv[1]) as conn:
-    conn.execute("CREATE TABLE outbox (state TEXT, available_at TEXT, lease_expires_at TEXT)")
+    conn.execute("CREATE TABLE outbox (state TEXT, created_at TEXT, lease_expires_at TEXT)")
     conn.executemany(
         "INSERT INTO outbox VALUES (?, ?, ?)",
         [

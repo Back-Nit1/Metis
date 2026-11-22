@@ -109,6 +109,32 @@
             "yAxis": {"label": "errors/second", "scale": "LINEAR"}
           }
         }
+      },
+      {
+        "xPos": 0,
+        "yPos": 8,
+        "width": 12,
+        "height": 4,
+        "widget": {
+          "title": "VM disk percent used",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"agent.googleapis.com/disk/percent_used\" AND resource.type=\"gce_instance\" AND resource.label.\"instance_id\"=\"__INSTANCE_ID__\" AND metric.label.\"state\"=\"used\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_MEAN"
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": {"label": "percent", "scale": "LINEAR"}
+          }
+        }
       }
     ]
   }

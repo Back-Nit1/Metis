@@ -60,11 +60,34 @@ else
     --log-filter="$error_filter"
 fi
 
+# Optional: NOTIFY_EMAIL=you@example.com attaches an email channel to every policy.
+# Channels have no GA gcloud command, so use the REST API directly.
+channel=""
+if [ -n "${NOTIFY_EMAIL:-}" ]; then
+  api="https://monitoring.googleapis.com/v3/projects/$PROJECT/notificationChannels"
+  auth="Authorization: Bearer $(gcloud auth print-access-token)"
+  # List returns {"notificationChannels": [...]} (or {}); create returns the channel.
+  json_name() { python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("notificationChannels") or [d])[0].get("name",""))'; }
+  channel="$(curl -fsS -H "$auth" -G "$api" \
+    --data-urlencode "filter=type=\"email\" AND labels.email_address=\"$NOTIFY_EMAIL\"" | json_name)"
+  if [ -z "$channel" ]; then
+    channel="$(curl -fsS -H "$auth" -H 'Content-Type: application/json' -X POST "$api" \
+      -d "$(python3 -c 'import json,sys; print(json.dumps({"type":"email","displayName":"Metis alerts ("+sys.argv[1]+")","labels":{"email_address":sys.argv[1]}}))' "$NOTIFY_EMAIL")" \
+      | json_name)"
+  fi
+  [ -n "$channel" ] || { echo "could not create notification channel" >&2; exit 1; }
+fi
+
 ensure_policy() {
   local display_name="$1"; shift
-  if [ -z "$(g monitoring policies list \
-    --filter="displayName=\"$display_name\"" --format='value(name)' --limit=1)" ]; then
-    g monitoring policies create --display-name="$display_name" "$@"
+  local name
+  name="$(g monitoring policies list \
+    --filter="displayName=\"$display_name\"" --format='value(name)' --limit=1)"
+  if [ -z "$name" ]; then
+    name="$(g monitoring policies create --display-name="$display_name" "$@" --format='value(name)')"
+  fi
+  if [ -n "$channel" ]; then
+    g monitoring policies update "$name" --add-notification-channels="$channel" >/dev/null
   fi
 }
 
@@ -85,6 +108,12 @@ ensure_policy "Metis VM memory high" \
   --condition-filter="resource.type=\"gce_instance\" AND metric.type=\"agent.googleapis.com/memory/percent_used\" AND resource.label.\"instance_id\"=\"$instance_id\" AND metric.label.\"state\"=\"used\"" \
   --duration=300s --if='> 85' --trigger-count=1 --combiner=OR \
   --documentation="Metis VM memory use has exceeded 85% for five minutes."
+
+ensure_policy "Metis VM disk high" \
+  --condition-display-name="Disk used above 85%" \
+  --condition-filter="resource.type=\"gce_instance\" AND metric.type=\"agent.googleapis.com/disk/percent_used\" AND resource.label.\"instance_id\"=\"$instance_id\" AND metric.label.\"state\"=\"used\"" \
+  --duration=300s --if='> 85' --trigger-count=1 --combiner=OR \
+  --documentation="Metis VM disk use has exceeded 85%. A full disk stops SQLite, logs and uploads."
 
 ensure_policy "Metis service errors" \
   --condition-display-name="A Metis systemd service logged an error" \

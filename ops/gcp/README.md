@@ -45,9 +45,10 @@ PROJECT=metis-dev-856337 ops/gcp/configure-monitoring.sh
 
 This creates the `Metis API HTTPS` uptime check, `metis_service_errors`
 log-based metric, CPU/memory/uptime/service-error alert policies, and the
-`Metis Operations` dashboard. Add a notification channel in Cloud Monitoring
-and attach it to the policies; policies without a channel create visible
-incidents but send no email, SMS, Slack, or PagerDuty notification.
+`Metis Operations` dashboard. Set `NOTIFY_EMAIL=you@example.com` to create (or
+reuse) an email notification channel and attach it to every policy. Without it,
+policies create visible incidents but send no email, SMS, Slack, or PagerDuty
+notification.
 
 - [VM details](https://console.cloud.google.com/compute/instancesDetail/zones/us-central1-a/instances/metis?project=metis-dev-856337)
 - [Monitoring dashboards](https://console.cloud.google.com/monitoring/dashboards?project=metis-dev-856337)

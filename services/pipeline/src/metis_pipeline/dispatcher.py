@@ -21,9 +21,10 @@ import socket
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from metis_contracts import (
+    INGEST_EVENT_TYPES,
     RETRYABLE_FAILURES,
     ErrorCode,
     EventEnvelope,
@@ -102,6 +103,11 @@ class HandlerRegistry:
     @property
     def event_types(self) -> frozenset[str]:
         return frozenset(self._handlers)
+
+
+def lane_of(event_type: str) -> Literal["interactive", "ingest"]:
+    """Bulk corpus work runs on its own lane so it can never starve reminders."""
+    return "ingest" if event_type in INGEST_EVENT_TYPES else "interactive"
 
 
 def backoff_seconds(attempt: int, *, base: int = 5, cap: int = 900) -> int:
@@ -184,16 +190,34 @@ class DispatchResult:
 class OutboxDispatcher:
     """Claims leased events and runs their handlers."""
 
-    def __init__(self, registry: HandlerRegistry, context: DispatchContext) -> None:
+    def __init__(
+        self,
+        registry: HandlerRegistry,
+        context: DispatchContext,
+        *,
+        lane: Literal["all", "interactive", "ingest"] = "all",
+    ) -> None:
         self._registry = registry
         self._context = context
+        self.lane = lane
 
     def run_once(self, *, limit: int | None = None) -> DispatchResult:
         limits = settings().limits
         batch = limit or limits.outbox_batch
-        events = self._context.state_store.claim_outbox(
-            owner=self._context.worker_id, limit=batch, lease_seconds=limits.job_lease_seconds
-        )
+        if self.lane == "all":
+            events = self._context.state_store.claim_outbox(
+                owner=self._context.worker_id, limit=batch, lease_seconds=limits.job_lease_seconds
+            )
+        else:
+            # The StateStore port predates lanes; only the SQLite store has them.
+            state: Any = self._context.state_store
+            events = state.claim_outbox(
+                owner=self._context.worker_id,
+                limit=batch,
+                lease_seconds=limits.job_lease_seconds,
+                lane=self.lane,
+                max_in_flight=limits.ingest_max_in_flight if self.lane == "ingest" else None,
+            )
         result = DispatchResult()
         for event in events:
             result.processed += 1

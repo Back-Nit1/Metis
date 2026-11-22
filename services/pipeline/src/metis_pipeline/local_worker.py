@@ -168,7 +168,10 @@ def _loop(
     while True:
         result = dispatcher.run_once()
         due = (
-            _fire_due_reminders(context) + _fire_due_daily_plans(context) + _fire_due_syncs(context)
+            _fire_due_reminders(context)
+            + _fire_due_daily_plans(context)
+            + _fire_due_syncs(context)
+            + _expire_dead_letters(context)
             if timers
             else 0
         )
@@ -354,6 +357,18 @@ def _fire_due_daily_plans(context: Any) -> int:
         return 0
     results = run_local_daily_due(context.state_store, context.clock, context.schedule_store)
     return sum(r["enqueued"] for r in results)
+
+
+def _expire_dead_letters(context: Any) -> int:
+    """Age out dead letters even when nothing new is failing."""
+    evict = getattr(context.state_store, "evict_dead_letters", None)
+    if evict is None:
+        return 0
+    try:
+        return int(evict())
+    except Exception:
+        log.exception("dead-letter expiry failed; will retry next cycle")
+        return 0
 
 
 def _fire_due_syncs(context: Any) -> int:

@@ -292,6 +292,8 @@ class OutboxState(StrEnum):
     FAILED = "failed"
     DEAD_LETTER = "dead_letter"
     SUPERSEDED = "superseded"
+    #: Aged or pushed out of the dead-letter queue, oldest first. Kept for audit.
+    EXPIRED = "expired"
 
 
 class AdapterMode(StrEnum):

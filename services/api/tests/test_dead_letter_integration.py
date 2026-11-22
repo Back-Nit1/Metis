@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from metis_contracts import EventType, OutboxEvent, reset_settings_cache
 from metis_contracts.enums import SourceLifecycle
 from metis_pipeline.dispatcher import DispatchContext, OutboxDispatcher
 from metis_pipeline.local_worker import build_registry
@@ -203,3 +204,82 @@ def test_changed_bytes_are_never_skipped(client, adapters, drain, calls, docs):
     assert calls["parse"] == 2
     hits = client.post("/v1/search", json={"query": "longer"}).json()["results"]
     assert len(hits) == 1
+
+
+def test_unsupported_binaries_are_skipped_not_dead_lettered(client, adapters, drain, calls, docs):
+    (docs / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00binary")
+    (docs / "app.sqlite").write_bytes(b"SQLite format 3\x00data")
+    (docs / "note.md").write_text("readable")
+    connect(client, docs)
+    drain()
+
+    assert dead(client) == []
+    titles = {s.origin.title for s in adapters.state_store.list_sources(USER, limit=100).items if s.origin}
+    assert titles == {"note.md"} and calls["parse"] == 1
+
+
+def test_fixing_a_file_clears_its_stale_dead_letter(client, adapters, drain, docs):
+    path = docs / "broken.pdf"
+    path.write_bytes(MALFORMED)
+    connect(client, docs)
+    drain()
+    assert len(dead(client)) == 1
+
+    path.write_bytes(valid_pdf("Now readable"))
+    connector = client.get("/v1/connectors").json()["items"][0]
+    adapters.clock.advance(seconds=1)
+    assert client.post(f"/v1/connectors/{connector['id']}/sync", headers=key()).status_code == 202
+    drain()
+
+    assert dead(client) == [], "a newer success resolves the old failure"
+    assert source(adapters, "broken.pdf").lifecycle is SourceLifecycle.READY
+
+
+def test_deleting_a_file_clears_its_dead_letter(client, adapters, drain, docs):
+    path = docs / "broken.pdf"
+    path.write_bytes(MALFORMED)
+    connect(client, docs)
+    drain()
+    path.unlink()
+    connector = client.get("/v1/connectors").json()["items"][0]
+    adapters.clock.advance(seconds=1)
+    assert client.post(f"/v1/connectors/{connector['id']}/sync", headers=key()).status_code == 202
+    drain()
+    assert dead(client) == []
+
+
+def _dead_letter(adapters, event_id: str) -> None:
+    now = adapters.clock.now()
+    with adapters.state_store.transaction(USER) as tx:
+        tx.append_outbox(
+            OutboxEvent(
+                id=event_id,
+                user_id=USER,
+                created_at=now,
+                updated_at=now,
+                event_type=EventType.SOURCE_INGEST_REQUESTED,
+                correlation_id="cor_test",
+                idempotency_key=event_id,
+                payload={},
+                available_at=now,
+            )
+        )
+    adapters.state_store.complete_outbox(event_id, user_id=USER, state="dead_letter", failure="validation")
+
+
+def test_dead_letter_queue_is_fifo_and_evicts_oldest_over_cap(client, adapters, monkeypatch):
+    monkeypatch.setenv("METIS_DEAD_LETTER_MAX_PER_USER", "2")
+    reset_settings_cache()
+    for name in ("obx_first", "obx_second", "obx_third"):
+        _dead_letter(adapters, name)
+        adapters.clock.advance(seconds=1)
+
+    assert [d["event_id"] for d in dead(client)] == ["obx_second", "obx_third"], "oldest first"
+    assert retry(client, "obx_first").status_code == 404, "evicted letters cannot be retried"
+
+
+def test_dead_letters_expire_after_retention(client, adapters):
+    _dead_letter(adapters, "obx_old")
+    adapters.clock.advance(days=31)
+    assert adapters.state_store.evict_dead_letters() == 1
+    assert dead(client) == []

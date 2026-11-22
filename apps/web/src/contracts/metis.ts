@@ -131,6 +131,7 @@ export enum OutboxState {
   FAILED = "failed",
   DEAD_LETTER = "dead_letter",
   SUPERSEDED = "superseded",
+  EXPIRED = "expired",
 }
 
 export enum PlanStatus {
@@ -1217,6 +1218,8 @@ export interface SearchResponse {
   index_available?: boolean;
   index_stale?: boolean;
   degraded_reason?: string | null;
+  decomposition?: "none" | "parallel" | "sequential";
+  sub_queries?: string[];
 }
 
 /** One hybrid-retrieval hit. ``evidence`` is the citation shown to the user. */

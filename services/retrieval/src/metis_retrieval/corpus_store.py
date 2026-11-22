@@ -42,6 +42,15 @@ CREATE TABLE IF NOT EXISTS chunks (
 CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks (user_id, source_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks (user_id, content_hash, model_id);
 
+-- Proof a source's exact bytes were fully indexed. Deleted with its chunks.
+CREATE TABLE IF NOT EXISTS ingest_receipts (
+    user_id     TEXT NOT NULL,
+    source_id   TEXT NOT NULL,
+    work_key    TEXT NOT NULL,
+    chunk_count INTEGER NOT NULL,
+    PRIMARY KEY (user_id, source_id)
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     chunk_id UNINDEXED, user_id UNINDEXED, title, uri, content, tokenize = 'unicode61'
 );
@@ -190,6 +199,22 @@ class CorpusStore:
                     (blob, model_id, len(blob) // 4, user_id, chunk_id),
                 )
 
+    def record_ingest(self, user_id: str, source_id: str, work_key: str, chunk_count: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO ingest_receipts VALUES (?,?,?,?)",
+                (user_id, source_id, work_key, chunk_count),
+            )
+
+    def ingested_chunk_count(self, user_id: str, source_id: str, work_key: str) -> int | None:
+        """Chunk count when exactly this work already finished, else None."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT chunk_count FROM ingest_receipts WHERE user_id=? AND source_id=? AND work_key=?",
+                (user_id, source_id, work_key),
+            ).fetchone()
+        return None if row is None else int(row["chunk_count"])
+
     def delete_source(self, user_id: str, source_id: str) -> int:
         with self._lock:
             return self._delete_source_locked(user_id, source_id)
@@ -204,6 +229,9 @@ class CorpusStore:
         for chunk_id in ids:
             self._conn.execute("DELETE FROM chunks_fts WHERE user_id=? AND chunk_id=?", (user_id, chunk_id))
         self._conn.execute("DELETE FROM chunks WHERE user_id=? AND source_id=?", (user_id, source_id))
+        self._conn.execute(
+            "DELETE FROM ingest_receipts WHERE user_id=? AND source_id=?", (user_id, source_id)
+        )
         return len(ids)
 
     # -- reads --------------------------------------------------------- #

@@ -267,7 +267,7 @@ describe("sources, queue and change feed", () => {
     await api.syncConnector("c1", "k2");
     await api.queue();
     await api.deadLetters();
-    await api.retryDeadLetter("e1");
+    await api.retryDeadLetter("e1", "k3");
     await api.changes(41, 25);
     await api.search({ query: "report" });
     expect(calls.map((c) => `${c.init.method} ${c.url.replace(API_BASE, "")}`)).toEqual([

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from metis_contracts.enums import FailureCategory, SourceLifecycle
 from metis_contracts.events import ConnectorSyncPayload, MemoryIndexPayload, PurgePayload, SourceIngestPayload
 from metis_pipeline.dispatcher import DispatchContext, HandlerRegistry, classify
 
-from .connectors import sync_connector
+from .connectors import _sha256, sync_connector
 from .corpus_store import ChunkRow, chunk_id_for
 from .embedder import content_hash
 from .ingestion import chunk_text, needs_embedding
@@ -142,6 +143,27 @@ def handle_source_ingest(envelope: EventEnvelope, context: DispatchContext) -> N
             error_message=f"skipped: {size} bytes exceeds the {limit}-byte corpus limit",
         )
         return
+
+    # Same bytes + version + model = same result, so a redelivered job skips the
+    # parse and embed. Only a finished ingest writes a receipt; failures rerun.
+    model_id = context.embedder.model_id if context.embedder is not None else ""
+    work_key = hashlib.sha256(
+        f"{source.id}:{source.current_version}:{_sha256(path)}:{model_id}".encode()
+    ).hexdigest()
+    done = corpus.ingested_chunk_count(user_id, source.id, work_key)
+    if done is not None:
+        log.info("source %s already ingested for this content; skipping", source.id)
+        if source.lifecycle is not SourceLifecycle.READY:  # crashed after indexing
+            _mark(
+                context,
+                source,
+                lifecycle=SourceLifecycle.READY,
+                chunk_count=done,
+                failure=None,
+                error_message=None,
+            )
+        return
+
     try:
         text = parse_file(path)
     except MetisError as exc:
@@ -187,6 +209,7 @@ def handle_source_ingest(envelope: EventEnvelope, context: DispatchContext) -> N
         vectors: dict[str, Any] = {cid: reused[h] for cid, h in pending if h in reused}
         vectors.update({cid: vec for (cid, _), vec in zip(todo, fresh, strict=True)})
         corpus.set_vectors(user_id, embedder.model_id, vectors)
+    corpus.record_ingest(user_id, source.id, work_key, len(rows))
 
     _mark(
         context,

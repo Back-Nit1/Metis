@@ -11,6 +11,7 @@ import { Button } from "../components/Button";
 import { Chip, Empty, Notice, PageHeader, SectionHeading } from "../components/Card";
 import { Icon } from "../components/Icon";
 import { useSession } from "../app/session";
+import { useChanges } from "../lib/useSync";
 import { ApiError, api } from "../lib/api";
 import { timeLabel } from "../lib/format";
 
@@ -40,6 +41,7 @@ export function TasksScreen() {
   }, [filter]);
 
   useEffect(() => void load(), [load]);
+  useChanges(["task", "event"], () => void load());
 
   const act = async (task: Task, state: TaskState) => {
     try {

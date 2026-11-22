@@ -255,3 +255,51 @@ describe("exports, plans and sessions", () => {
     setUnauthenticatedHandler(null);
   });
 });
+
+describe("sources, queue and change feed", () => {
+  it("calls every corpus endpoint with the right method, path and headers", async () => {
+    const calls = mockFetch((call) => (call.init.method === "DELETE" ? new Response(null, { status: 204 }) : json({})));
+    await api.listConnectors();
+    await api.listConnectors("next page");
+    await api.createConnector({ kind: "local_folder", title: "Notes", config: { paths: ["/Users/me/notes"] } }, "k1");
+    await api.patchConnector("c1", { expected_revision: 3, status: "paused" });
+    expect(await api.deleteConnector("c1")).toBeUndefined();
+    await api.syncConnector("c1", "k2");
+    await api.queue();
+    await api.deadLetters();
+    await api.retryDeadLetter("e1");
+    await api.changes(41, 25);
+    await api.search({ query: "report" });
+    expect(calls.map((c) => `${c.init.method} ${c.url.replace(API_BASE, "")}`)).toEqual([
+      "GET /v1/connectors",
+      "GET /v1/connectors?cursor=next%20page",
+      "POST /v1/connectors",
+      "PATCH /v1/connectors/c1",
+      "DELETE /v1/connectors/c1",
+      "POST /v1/connectors/c1/sync",
+      "GET /v1/queue",
+      "GET /v1/queue/dead-letters",
+      "POST /v1/queue/dead-letters/e1/retry",
+      "GET /v1/changes?after=41&wait=25",
+      "POST /v1/search",
+    ]);
+    const header = (i: number) => (calls[i]?.init.headers as Record<string, string>)["Idempotency-Key"];
+    expect([header(2), header(5)]).toEqual(["k1", "k2"]);
+    expect(JSON.parse(String(calls[3]?.init.body))).toEqual({ expected_revision: 3, status: "paused" });
+    expect(String(calls[2]?.init.body)).not.toContain("user_id");
+  });
+
+  it("surfaces a connector revision conflict as a 409 ApiError", async () => {
+    mockFetch(() => json({ code: ErrorCode.REVISION_CONFLICT, message: "stale", current_revision: 4 }, 409));
+    const error = await api.patchConnector("c1", { expected_revision: 3, status: "active" }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(409);
+    expect((error as ApiError).currentRevision).toBe(4);
+  });
+
+  it("hands the sync worker an absolute base and the current bearer", async () => {
+    const { syncCredentials } = await import("./api");
+    setAuthToken("tok");
+    expect(syncCredentials()).toEqual({ baseUrl: new URL(API_BASE).href.replace(/\/$/, ""), token: "tok" });
+  });
+});

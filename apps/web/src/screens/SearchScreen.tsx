@@ -7,7 +7,8 @@ import { useState } from "react";
 import type { SearchResponse } from "../contracts/metis";
 import { Button } from "../components/Button";
 import { Chip, Empty, Loading, Notice, PageHeader } from "../components/Card";
-import { EvidenceLink } from "../components/EvidenceLink";
+import { EvidenceLink, MatchedBadges, OpenOriginal } from "../components/EvidenceLink";
+import { isCorpus, originLabel } from "../lib/evidence";
 import { inputClass } from "../components/Field";
 import { api } from "../lib/api";
 import { timeLabel } from "../lib/format";
@@ -41,7 +42,7 @@ export function SearchScreen() {
   const results = response?.results ?? [];
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Search" sub="Ask what you have already recorded. Answers come only from your own sources." />
+      <PageHeader title="Search" sub="Ask what you have recorded or imported. Answers come only from your own notes, files and sources." />
       <form onSubmit={(e) => void submit(e)} role="search" className="flex flex-col gap-3">
         <div className="flex gap-2">
           <input
@@ -49,7 +50,7 @@ export function SearchScreen() {
             type="search"
             name="q"
             aria-label="Search your notes"
-            placeholder="What did I decide about…"
+            placeholder="What did I decide about… or a file name"
             autoComplete="off"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -72,6 +73,9 @@ export function SearchScreen() {
               The memory index is unavailable{response.degraded_reason ? ` (${response.degraded_reason})` : ""}, so results may be missing.
             </Notice>
           )}
+          {response.index_available !== false && response.degraded_reason && (
+            <Notice tone="warn">Search ran in a reduced mode: {response.degraded_reason}.</Notice>
+          )}
           {response.index_stale && <Notice tone="info">The index may be behind your latest notes.</Notice>}
           {results.length === 0 ? (
             <Empty icon="search" title="No relevant memory">
@@ -83,17 +87,30 @@ export function SearchScreen() {
                 {results.length} result{results.length === 1 ? "" : "s"} · {response.mode_used} search
               </p>
               <ul className="flex flex-col gap-2">
-                {results.map((r) => (
-                  <li key={r.memory_id} className="rounded-lg border border-line bg-surface p-4">
-                    <p className="font-serif text-base text-ink">{r.content}</p>
-                    <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                      <Chip>{r.kind}</Chip>
-                      {r.evidence.validity && r.evidence.validity !== "current" && <Chip>{r.evidence.validity}</Chip>}
-                      <span>recorded {timeLabel(r.evidence.recorded_at, timezone)}</span>
-                      <EvidenceLink evidence={r.evidence} />
-                    </p>
-                  </li>
-                ))}
+                {results.map((r, i) => {
+                  const ev = r.evidence;
+                  return (
+                    <li key={r.chunk_id ?? r.memory_id ?? i} className="rounded-lg border border-line bg-surface p-4">
+                      <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                        <Chip>{originLabel(ev)}</Chip>
+                        {ev.title && <span className="min-w-0 font-medium text-ink">{ev.title}</span>}
+                        <MatchedBadges evidence={ev} />
+                      </p>
+                      {ev.uri && (
+                        <p className="mt-1 flex flex-wrap items-center gap-2 break-all font-mono text-2xs text-muted">
+                          {ev.uri} <OpenOriginal uri={ev.uri} />
+                        </p>
+                      )}
+                      <p className="mt-2 font-serif text-base text-ink">{isCorpus(ev) ? ev.excerpt || r.content : r.content}</p>
+                      <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                        {r.kind && <Chip>{r.kind}</Chip>}
+                        {ev.validity && ev.validity !== "current" && <Chip>{ev.validity}</Chip>}
+                        <span>recorded {timeLabel(ev.recorded_at, timezone)}</span>
+                        <EvidenceLink evidence={ev} label="cited source" />
+                      </p>
+                    </li>
+                  );
+                })}
               </ul>
             </>
           )}

@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { JobState, type CaptureDetail, type DeleteCaptureResponse, type Job } from "../contracts/metis";
 import { ApiError, api } from "../lib/api";
-import { locate, type EvidenceRef } from "../lib/evidence";
+import { isCorpus, locate, matchedOf, originLabel, pathFromUri, revealOrCopy, webLink, type EvidenceRef } from "../lib/evidence";
 import { Button } from "./Button";
 import { Loading, Notice } from "./Card";
 
@@ -100,6 +100,81 @@ function SourceBody({ refs, onClose }: { refs: EvidenceRef; onClose: () => void 
   );
 }
 
+/** Opens the original of a corpus citation: reveal/copy a file path, or follow a mail/Drive link. */
+export function OpenOriginal({ uri }: { uri?: string | null }) {
+  const [said, setSaid] = useState<string | null>(null);
+  const path = pathFromUri(uri);
+  const link = webLink(uri);
+  if (link)
+    return (
+      <a href={link} target="_blank" rel="noopener noreferrer" className="text-xs text-accent-ink underline underline-offset-2">
+        Open original
+      </a>
+    );
+  if (!path) return null;
+  const open = async () => {
+    const result = await revealOrCopy(path);
+    setSaid(result === "revealed" ? "Shown in your file manager." : result === "copied" ? "Path copied." : "Could not open or copy the path.");
+  };
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <button type="button" onClick={() => void open()} className="text-xs text-accent-ink underline underline-offset-2">
+        Show file
+      </button>
+      {said && <span role="status" className="text-2xs text-muted">{said}</span>}
+    </span>
+  );
+}
+
+/** Which matchers found this result, as small badges. */
+export function MatchedBadges({ evidence }: { evidence: EvidenceRef }) {
+  const matched = matchedOf(evidence);
+  return (
+    <>
+      {matched.map((m) => (
+        <span key={m} className="rounded-sm border border-line px-1 py-px font-mono text-2xs text-muted">
+          {m === "semantic" ? "Semantic" : "Keyword"}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** A file / email / Drive citation: what was cited and where it lives. No transcript to load. */
+function CorpusBody({ refs, onClose }: { refs: EvidenceRef; onClose: () => void }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <span className="rounded-sm border border-line bg-raised px-1.5 py-0.5 font-mono text-2xs">{originLabel(refs)}</span>
+        <span className="font-medium text-ink">{refs.title ?? "Untitled source"}</span>
+        <MatchedBadges evidence={refs} />
+      </p>
+      {refs.uri && <p className="break-all font-mono text-2xs text-muted">{refs.uri}</p>}
+      {refs.excerpt ? (
+        <p className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-canvas p-3 font-serif text-base leading-relaxed">
+          {refs.excerpt}
+        </p>
+      ) : (
+        <Notice tone="info">No excerpt was supplied with this citation.</Notice>
+      )}
+      <p className="text-xs text-muted">
+        <span className="font-mono">{refs.source_id}</span> · version {refs.source_version}
+        {refs.start_char != null && refs.end_char != null ? ` · characters ${refs.start_char}–${refs.end_char}` : " · no span supplied"}
+      </p>
+      <div className="flex items-center gap-3">
+        <Button onClick={onClose}>Close</Button>
+        <OpenOriginal uri={refs.uri} />
+      </div>
+    </div>
+  );
+}
+
+function defaultLabel(evidence: EvidenceRef): string {
+  if (!evidence.title) return `source ${evidence.source_id.slice(0, 10)}…`;
+  const title = evidence.title.length > 40 ? `${evidence.title.slice(0, 39)}…` : evidence.title;
+  return `${originLabel(evidence)} · ${title}`;
+}
+
 export function EvidenceLink({ evidence, label }: { evidence: EvidenceRef; label?: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
@@ -110,7 +185,7 @@ export function EvidenceLink({ evidence, label }: { evidence: EvidenceRef; label
         onClick={() => (setOpen(true), dialog.current?.showModal())}
         className="rounded-sm border border-line bg-raised px-1.5 py-0.5 font-mono text-2xs text-accent-ink underline underline-offset-2 hover:bg-accent-soft"
       >
-        {label ?? `source ${evidence.source_id.slice(0, 10)}…`}
+        {label ?? defaultLabel(evidence)}
       </button>
       {createPortal(
       <dialog
@@ -119,7 +194,12 @@ export function EvidenceLink({ evidence, label }: { evidence: EvidenceRef; label
         onClose={() => setOpen(false)}
         className="m-auto w-[min(92vw,40rem)] rounded-lg border border-line-strong bg-surface p-5 text-ink backdrop:bg-ink/40"
       >
-        {open && <SourceBody refs={evidence} onClose={() => dialog.current?.close()} />}
+        {open &&
+          (isCorpus(evidence) ? (
+            <CorpusBody refs={evidence} onClose={() => dialog.current?.close()} />
+          ) : (
+            <SourceBody refs={evidence} onClose={() => dialog.current?.close()} />
+          ))}
       </dialog>,
         document.body,
       )}

@@ -22,13 +22,15 @@ import { NotificationsScreen } from "../screens/NotificationsScreen";
 import { ProjectsScreen } from "../screens/ProjectsScreen";
 import { SearchScreen } from "../screens/SearchScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
+import { SourcesScreen } from "../screens/SourcesScreen";
 import { TasksScreen } from "../screens/TasksScreen";
 import { TodayScreen } from "../screens/TodayScreen";
 import { useOpenReviewListener } from "../lib/openReview";
 import { AuthGate } from "./AuthGate";
+import { SyncProvider } from "../lib/useSync";
 import { SessionProvider, useSession } from "./session";
 
-const SURFACES = ["today", "capture", "inbox", "tasks", "projects", "search", "alerts", "settings"] as const;
+const SURFACES = ["today", "capture", "inbox", "tasks", "projects", "search", "sources", "alerts", "settings"] as const;
 type Surface = (typeof SURFACES)[number];
 
 const LABEL: Record<Surface, string> = {
@@ -38,6 +40,7 @@ const LABEL: Record<Surface, string> = {
   tasks: "Tasks",
   projects: "Projects",
   search: "Search",
+  sources: "Sources",
   alerts: "Alerts",
   settings: "Settings",
 };
@@ -49,13 +52,14 @@ const ICON: Record<Surface, IconName> = {
   tasks: "tasks",
   projects: "pin",
   search: "search",
+  sources: "folder",
   alerts: "bell",
   settings: "gear",
 };
 
 const RAIL_GROUPS: { label: string; items: Surface[] }[] = [
   { label: "Work", items: ["today", "inbox", "tasks", "projects"] },
-  { label: "Find", items: ["search", "alerts"] },
+  { label: "Find", items: ["search", "sources", "alerts"] },
 ];
 
 const BAR: Surface[] = ["today", "inbox", "capture", "tasks", "alerts"];
@@ -283,6 +287,7 @@ function Shell() {
           {surface === "tasks" && <TasksScreen />}
           {surface === "projects" && <ProjectsScreen />}
           {surface === "search" && <SearchScreen />}
+          {surface === "sources" && <SourcesScreen />}
           {surface === "alerts" && <NotificationsScreen />}
           {surface === "settings" && <SettingsScreen />}
         </main>
@@ -355,9 +360,11 @@ export function App() {
   return (
     <DesktopGate>
       <AuthGate>
-        <SessionProvider>
-          <Shell />
-        </SessionProvider>
+        <SyncProvider>
+          <SessionProvider>
+            <Shell />
+          </SessionProvider>
+        </SyncProvider>
       </AuthGate>
     </DesktopGate>
   );

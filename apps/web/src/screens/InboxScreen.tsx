@@ -13,6 +13,7 @@ import { Empty, Loading, Notice, PageHeader, SectionHeading } from "../component
 import { EvidenceLink } from "../components/EvidenceLink";
 import { Field, inputClass } from "../components/Field";
 import { useSession } from "../app/session";
+import { useChanges } from "../lib/useSync";
 import { api } from "../lib/api";
 
 export function InboxScreen() {
@@ -36,6 +37,7 @@ export function InboxScreen() {
   }, []);
 
   useEffect(() => void load(), [load]);
+  useChanges(["task", "event", "proposal", "source"], () => void load());
 
   const commit = async (task: Task, deadline: string) => {
     setBusy(task.id);

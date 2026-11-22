@@ -125,6 +125,14 @@ class _Tx:
         return epoch
 
     def remember_idempotent(self, key: str, response: dict[str, Any]) -> None:
+        existing = self._conn.execute(
+            "SELECT 1 FROM idempotency WHERE user_id=? AND key=?", (self.user_id, key)
+        ).fetchone()
+        if existing is not None:
+            raise MetisError(
+                ErrorCode.IDEMPOTENCY_MISMATCH,
+                "a concurrent request already committed this Idempotency-Key",
+            )
         self._store._remember_idempotent_locked(self._conn, self.user_id, key, response)
 
     def claim(self, claim_key: str, owner: str) -> bool:

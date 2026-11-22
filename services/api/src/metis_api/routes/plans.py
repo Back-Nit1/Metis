@@ -45,9 +45,17 @@ def create_plan(body: CreatePlanRequest, ctx: Context) -> CreatePlanResponse:
         timezone=body.timezone,
         time_budget_minutes=body.time_budget_minutes or 0,
         correlation_id=ctx.correlation_id,
+        idempotency_key=ctx.require_idempotency_key(),
+        remember=lambda tx, plan, job: ctx.remember_in(
+            tx,
+            CreatePlanResponse(
+                plan_id=plan.id,
+                job_id=job.id,
+                status=plan.status.value,
+            ).model_dump(mode="json"),
+        ),
     )
     result = CreatePlanResponse(plan_id=stored_plan.id, job_id=stored_job.id, status=stored_plan.status.value)
-    ctx.remember(result.model_dump(mode="json"))
     return result
 
 

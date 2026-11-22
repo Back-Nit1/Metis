@@ -26,6 +26,7 @@ from metis_contracts.ports import (
     SourceStore,
     SpeechTranscriber,
     StateStore,
+    Transaction,
 )
 
 from .auth import Principal, principal_from_header
@@ -221,15 +222,24 @@ class RequestContext:
         if stored.pop(_FINGERPRINT_FIELD, None) not in (None, self.fingerprint):
             # Replaying the first response here would silently drop this request.
             raise MetisError(
-                ErrorCode.VALIDATION_FAILED, "this Idempotency-Key was already used for a different request"
+                ErrorCode.IDEMPOTENCY_MISMATCH,
+                "this Idempotency-Key was already used for a different request",
             )
         return stored
 
     def remember(self, response: dict[str, Any]) -> None:
         if self.idempotency_key:
             self.state.remember_idempotent(
-                self.user_id, self.idempotency_key, {**response, _FINGERPRINT_FIELD: self.fingerprint}
+                self.user_id, self.idempotency_key, self._idempotent_response(response)
             )
+
+    def remember_in(self, tx: Transaction, response: dict[str, Any]) -> None:
+        """Commit a replay response with the mutation and its outbox effects."""
+        if self.idempotency_key:
+            tx.remember_idempotent(self.idempotency_key, self._idempotent_response(response))
+
+    def _idempotent_response(self, response: dict[str, Any]) -> dict[str, Any]:
+        return {**response, _FINGERPRINT_FIELD: self.fingerprint}
 
 
 #: Starlette's TestClient reports "testclient"; a real socket peer is always an IP.

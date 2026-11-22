@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import Any
@@ -39,9 +40,11 @@ from metis_contracts import (
     resolve_timezone,
 )
 from metis_contracts.events import ReminderDuePayload, ReminderSyncPayload
-from metis_contracts.ports import Clock, StateStore
+from metis_contracts.ports import Clock, StateStore, Transaction
 
 log = logging.getLogger("metis.scheduler.service")
+
+RememberReminder = Callable[[Transaction, Reminder], None]
 
 
 def occurrence_key(reminder_id: str, trigger_at: datetime) -> str:
@@ -108,6 +111,7 @@ def request_reminder(
     purpose: ReminderPurpose = ReminderPurpose.GENERAL,
     clock: Clock,
     correlation_id: str,
+    remember: RememberReminder | None = None,
 ) -> Reminder:
     """Persist a reminder as ``pending_schedule`` and request the sync.
 
@@ -145,6 +149,8 @@ def request_reminder(
                 event_type=EventType.REMINDER_SCHEDULE_SYNC,
             )
         )
+        if remember is not None:
+            remember(tx, stored)
     return stored
 
 
@@ -156,6 +162,7 @@ def retarget_reminder(
     target_revision: int,
     clock: Clock,
     correlation_id: str,
+    remember: RememberReminder | None = None,
 ) -> Reminder:
     """A date change: supersede the old occurrence and request a new schedule.
 
@@ -185,11 +192,19 @@ def retarget_reminder(
                 event_type=EventType.REMINDER_SCHEDULE_SYNC,
             )
         )
+        if remember is not None:
+            remember(tx, stored)
     return stored
 
 
 def cancel_reminder(
-    state: StateStore, reminder: Reminder, *, clock: Clock, correlation_id: str, reason: str = "canceled"
+    state: StateStore,
+    reminder: Reminder,
+    *,
+    clock: Clock,
+    correlation_id: str,
+    reason: str = "canceled",
+    remember: RememberReminder | None = None,
 ) -> Reminder:
     """Cancel and request schedule deletion.
 
@@ -213,6 +228,8 @@ def cancel_reminder(
                 event_type=EventType.REMINDER_CANCEL_SYNC,
             )
         )
+        if remember is not None:
+            remember(tx, stored)
     return stored
 
 
@@ -226,7 +243,13 @@ def suspend_reminder(state: StateStore, reminder: Reminder, *, reason: str, cloc
 
 
 def snooze_reminder(
-    state: StateStore, reminder: Reminder, *, minutes: int, clock: Clock, correlation_id: str
+    state: StateStore,
+    reminder: Reminder,
+    *,
+    minutes: int,
+    clock: Clock,
+    correlation_id: str,
+    remember: RememberReminder | None = None,
 ) -> Reminder:
     assert_transition(reminder.state, ReminderState.SNOOZED)
     trigger_at = clock.now() + timedelta(minutes=minutes)
@@ -249,6 +272,8 @@ def snooze_reminder(
                 event_type=EventType.REMINDER_SCHEDULE_SYNC,
             )
         )
+        if remember is not None:
+            remember(tx, stored)
     return stored
 
 

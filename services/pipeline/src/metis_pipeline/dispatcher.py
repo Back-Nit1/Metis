@@ -209,9 +209,8 @@ class OutboxDispatcher:
                 owner=self._context.worker_id, limit=batch, lease_seconds=limits.job_lease_seconds
             )
         else:
-            # The StateStore port predates lanes; only the SQLite store has them.
-            state: Any = self._context.state_store
-            events = state.claim_outbox(
+            # Lane args only when needed, so simple test fakes keep the old signature.
+            events = self._context.state_store.claim_outbox(
                 owner=self._context.worker_id,
                 limit=batch,
                 lease_seconds=limits.job_lease_seconds,

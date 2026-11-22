@@ -22,6 +22,7 @@ from contextlib import AbstractContextManager
 from datetime import date, datetime
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from .api import Change, QueueStats
 from .common import Page
 from .entities import (
     AvailabilityBlock,
@@ -161,16 +162,40 @@ class StateStore(Protocol):
         separate resumable job."""
         ...
 
-    def list_dead_letters(self, limit: int = 50) -> list[OutboxEvent]:
-        """Operator read path for events that exhausted their retries."""
+    def list_dead_letters(self, limit: int = 50, *, user_id: str | None = None) -> list[OutboxEvent]:
+        """Events that exhausted their retries or failed permanently (malformed input)."""
         ...
+
+    def requeue_outbox(self, user_id: str, event_id: str) -> bool:
+        """Move one of the owner's dead letters back to pending with attempts reset."""
+        ...
+
+    def queue_stats(self, user_id: str | None = None) -> QueueStats: ...
+
+    def list_changes(self, user_id: str, *, after: int, limit: int = 500) -> tuple[list[Change], int]:
+        """Change feed rows with ``seq > after`` and the cursor to resume from."""
+        ...
+
+    def max_change_seq(self, user_id: str) -> int: ...
+
+    def list_connectors(self, user_id: str, *, cursor: str | None = None, limit: int = 100) -> Page[Any]: ...
+
+    def due_connector_ids(self, *, now: datetime, limit: int = 50) -> list[str]: ...
 
     def get_preferences(self, user_id: str) -> Preferences: ...
 
     def get_planning_epoch(self, user_id: str) -> int: ...
 
     # --- jobs and outbox ---------------------------------------------------
-    def claim_outbox(self, *, owner: str, limit: int, lease_seconds: int) -> list[OutboxEvent]: ...
+    def claim_outbox(
+        self,
+        *,
+        owner: str,
+        limit: int,
+        lease_seconds: int,
+        lane: Literal["all", "interactive", "ingest"] = "all",
+        max_in_flight: int | None = None,
+    ) -> list[OutboxEvent]: ...
 
     def complete_outbox(
         self,

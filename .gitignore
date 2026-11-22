@@ -56,3 +56,6 @@ coverage/
 htmlcov/
 .uv-cache/
 .uvcache/
+.vercel
+.env*
+.worktrees/

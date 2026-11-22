@@ -37,6 +37,7 @@ from metis_contracts.enums import TASK_OPEN_STATES, SourceLifecycle
 from metis_contracts.ports import Clock, Embedder, MemoryStore, StateStore
 
 from .corpus_store import ChunkRow
+from .decomposition import DecomposedSearch, Decomposer, build_decomposer
 from .embedder import semantic_available
 from .retrievers import CorpusLane, MemoryLane, lane_retriever
 
@@ -91,7 +92,9 @@ class RetrievalService:
         memory_store: MemoryStore,
         embedder: Embedder,
         clock: Clock,
+        decomposer: Decomposer | None = None,
     ) -> None:
+        self._decomposer = decomposer or build_decomposer()
         self._state = state_store
         self._memory = memory_store
         self._embedder = embedder
@@ -252,6 +255,30 @@ class RetrievalService:
         ]
         reasons = [r for r in (unavailable, keyword_only) if r]
         return results, "; ".join(reasons) or None
+
+    def search_decomposed(
+        self,
+        user_id: str,
+        *,
+        query: str,
+        project_id: str | None = None,
+        limit: int = 20,
+        include_historical: bool = False,
+    ) -> DecomposedSearch:
+        """``search``, split into sub-queries when a local planner is enabled."""
+
+        def run(text: str) -> tuple[list[SearchResult], str | None]:
+            return self.search(
+                user_id,
+                query=text,
+                project_id=project_id,
+                limit=limit,
+                include_historical=include_historical,
+            )
+
+        if self._decomposer is None:
+            return DecomposedSearch(*run(query))
+        return self._decomposer.search(query, run, limit=limit)
 
     def _hybrid(
         self,

@@ -143,13 +143,14 @@ def search(body: SearchRequest, ctx: Context) -> SearchResponse:
     # Each search embeds the query (a paid call in cloud mode) outside the
     # reserve/settle gate, so it gets its own small ceiling.
     ctx.throttle("search", per_minute=max(1, settings().limits.api_rate_per_minute // 6))
-    results, degraded = ctx.adapters.retrieval.search(
+    found = ctx.adapters.retrieval.search_decomposed(
         ctx.user_id,
         query=body.query,
         project_id=body.project_id,
         limit=body.limit,
         include_historical=body.include_historical,
     )
+    results, degraded = found.results, found.degraded
     kinds = {k.value for k in body.kinds}
     if kinds:  # corpus hits carry no memory kind, so a kind filter keeps memories only
         results = [r for r in results if r.kind is not None and r.kind.value in kinds]
@@ -162,7 +163,9 @@ def search(body: SearchRequest, ctx: Context) -> SearchResponse:
         mode_used="lexical" if keyword_only else "hybrid",
         index_available=all(r.startswith("keyword search only") for r in reasons),
         index_stale=False,
-        degraded_reason=degraded[:300] if degraded else None,
+        degraded_reason="; ".join(filter(None, [degraded, found.note]))[:300] or None,
+        decomposition=found.mode,
+        sub_queries=found.sub_queries,
     )
 
 

@@ -135,6 +135,124 @@
             "yAxis": {"label": "percent", "scale": "LINEAR"}
           }
         }
+      },
+      {
+        "xPos": 0,
+        "yPos": 12,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Caddy request latency (p95)",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"logging.googleapis.com/user/metis_caddy_request_latency_seconds\" AND resource.type=\"gce_instance\" AND resource.label.\"instance_id\"=\"__INSTANCE_ID__\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": {"label": "seconds", "scale": "LINEAR"}
+          }
+        }
+      },
+      {
+        "xPos": 6,
+        "yPos": 12,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Caddy request and 5xx rates",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "legendTemplate": "all requests",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"logging.googleapis.com/user/metis_caddy_requests\" AND resource.type=\"gce_instance\" AND resource.label.\"instance_id\"=\"__INSTANCE_ID__\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_RATE"
+                    }
+                  }
+                }
+              },
+              {
+                "plotType": "LINE",
+                "legendTemplate": "5xx responses",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"logging.googleapis.com/user/metis_caddy_5xx\" AND resource.type=\"gce_instance\" AND resource.label.\"instance_id\"=\"__INSTANCE_ID__\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_RATE"
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": {"label": "requests/second", "scale": "LINEAR"}
+          }
+        }
+      },
+      {
+        "xPos": 0,
+        "yPos": 16,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Worker outbox backlog",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"logging.googleapis.com/user/metis_outbox_backlog\" AND resource.type=\"gce_instance\" AND resource.label.\"instance_id\"=\"__INSTANCE_ID__\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_PERCENTILE_99"
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": {"label": "jobs", "scale": "LINEAR"}
+          }
+        }
+      },
+      {
+        "xPos": 6,
+        "yPos": 16,
+        "width": 6,
+        "height": 4,
+        "widget": {
+          "title": "Oldest ready outbox job",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "LINE",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"logging.googleapis.com/user/metis_outbox_oldest_age_seconds\" AND resource.type=\"gce_instance\" AND resource.label.\"instance_id\"=\"__INSTANCE_ID__\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_PERCENTILE_99"
+                    }
+                  }
+                }
+              }
+            ],
+            "yAxis": {"label": "seconds", "scale": "LINEAR"}
+          }
+        }
       }
     ]
   }

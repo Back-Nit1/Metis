@@ -108,6 +108,12 @@ unit metis-web "/usr/bin/python3 -m http.server 5173 --bind 127.0.0.1 --director
 # ExecStart and can be rolled out without replacing the rest of the unit.
 install -D -m 0644 "$APP/ops/gcp/systemd/metis-api-limits.conf" \
   /etc/systemd/system/metis-api.service.d/limits.conf
+install -D -m 0755 "$APP/ops/gcp/monitoring/queue-observer.py" \
+  /usr/local/libexec/metis-queue-observer
+install -m 0644 "$APP/ops/gcp/systemd/metis-queue-observer.service" \
+  /etc/systemd/system/metis-queue-observer.service
+install -m 0644 "$APP/ops/gcp/systemd/metis-queue-observer.timer" \
+  /etc/systemd/system/metis-queue-observer.timer
 
 # Public edge: TLS + health-checked load balancing across the configured API
 # endpoints. A single-VM install defaults to the loopback API. Additional
@@ -124,6 +130,7 @@ chown -R metis:metis "$DATA"
 chown -R root:root "$APP" "$MODELS" && chmod -R a+rX "$APP" "$MODELS"
 systemctl daemon-reload
 systemctl enable -q metis-api metis-worker metis-speech metis-web
+systemctl enable -q --now metis-queue-observer.timer
 systemctl restart metis-api metis-worker metis-speech metis-web
 
 # Host CPU/memory metrics plus systemd journal logs. The VM service account is

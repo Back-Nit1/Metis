@@ -1,0 +1,27 @@
+{
+  "displayName": "Metis API latency high",
+  "combiner": "OR",
+  "enabled": true,
+  "conditions": [
+    {
+      "displayName": "Caddy p95 latency exceeds one second",
+      "conditionThreshold": {
+        "filter": "resource.type=\"gce_instance\" AND metric.type=\"logging.googleapis.com/user/metis_caddy_request_latency_seconds\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1,
+        "duration": "300s",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_95"
+          }
+        ],
+        "trigger": {"count": 1}
+      }
+    }
+  ],
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Caddy p95 request latency has exceeded one second for five minutes. Check CPU, memory, outbox backlog, upstream health, and recent deployments."
+  }
+}

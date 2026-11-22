@@ -1,0 +1,12 @@
+[Unit]
+Description=Emit Metis outbox backlog telemetry
+After=metis-worker.service
+
+[Service]
+Type=oneshot
+User=metis
+ExecStart=/usr/bin/python3 /usr/local/libexec/metis-queue-observer --database /var/lib/metis/metis.sqlite
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

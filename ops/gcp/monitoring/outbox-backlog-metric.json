@@ -1,0 +1,17 @@
+{
+  "name": "metis_outbox_backlog",
+  "description": "Number of ready, failed, or dead-letter Metis outbox jobs waiting for attention.",
+  "filter": "resource.type=\"gce_instance\" AND jsonPayload._SYSTEMD_UNIT=\"metis-queue-observer.service\" AND jsonPayload.MESSAGE=~\"\\\"event\\\":\\\"metis_queue_stats\\\"\"",
+  "valueExtractor": "REGEXP_EXTRACT(jsonPayload.MESSAGE, \"\\\"backlog\\\":([0-9]+)\")",
+  "bucketOptions": {
+    "explicitBuckets": {
+      "bounds": [0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000]
+    }
+  },
+  "metricDescriptor": {
+    "displayName": "Metis outbox backlog",
+    "metricKind": "DELTA",
+    "valueType": "DISTRIBUTION",
+    "unit": "1"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "metis_outbox_oldest_age_seconds",
+  "description": "Age in seconds of the oldest ready Metis outbox job.",
+  "filter": "resource.type=\"gce_instance\" AND jsonPayload._SYSTEMD_UNIT=\"metis-queue-observer.service\" AND jsonPayload.MESSAGE=~\"\\\"event\\\":\\\"metis_queue_stats\\\"\"",
+  "valueExtractor": "REGEXP_EXTRACT(jsonPayload.MESSAGE, \"\\\"oldest_ready_age_seconds\\\":([0-9]+)\")",
+  "bucketOptions": {
+    "explicitBuckets": {
+      "bounds": [0, 30, 60, 120, 300, 600, 1800, 3600, 21600, 86400]
+    }
+  },
+  "metricDescriptor": {
+    "displayName": "Metis oldest outbox job age",
+    "metricKind": "DELTA",
+    "valueType": "DISTRIBUTION",
+    "unit": "s"
+  }
+}

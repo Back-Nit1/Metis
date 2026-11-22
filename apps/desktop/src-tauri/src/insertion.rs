@@ -5,6 +5,7 @@
 //! paste while preserving and restoring the previous clipboard value. User
 //! text is passed as an argv value, never interpolated into executable code.
 
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 /// Inserts finalized dictation into the application that currently owns focus.
@@ -90,7 +91,7 @@ impl TextInserter for SystemTextInserter {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            Err("focused-app dictation is currently supported on macOS only".into())
+            Err("focused-app dictation is not supported on this OS yet (macOS only)".into())
         }
     }
 
@@ -104,7 +105,7 @@ impl TextInserter for SystemTextInserter {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            Err("focused-app dictation is currently supported on macOS only".into())
+            Err("focused-app dictation is not supported on this OS yet (macOS only)".into())
         }
     }
 }

@@ -4,12 +4,13 @@ pub mod backend;
 pub mod hud;
 pub mod insertion;
 pub mod machine;
+pub mod native;
 pub mod session;
 pub mod stack;
 
 use serde::Serialize;
 use session::{Emit, Handle, Msg, Snapshot};
-use stack::{Config, Stack, StackStatus};
+use stack::{Config, LocalAi, Stack, StackStatus};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -168,6 +169,31 @@ fn show_main_window(app: tauri::AppHandle, capture_id: Option<String>) -> Result
     Ok(())
 }
 
+/// Whether Ollama answers on loopback and has the embedding model. Errors only
+/// when the configured endpoint itself is invalid.
+#[tauri::command(async)]
+fn ollama_status() -> Result<native::OllamaStatus, String> {
+    Ok(native::ollama_status(&LocalAi::from_env()?))
+}
+
+/// Native folder dialog; `None` when the user cancels.
+#[tauri::command]
+async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked =
+        tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
+            .await
+            .ok()
+            .flatten()?;
+    picked.into_path().ok()?.into_os_string().into_string().ok()
+}
+
+/// Reveal an absolute, existing path in Finder / Explorer / the file manager.
+#[tauri::command(async)]
+fn reveal_path(path: String) -> Result<(), String> {
+    native::reveal_path(&path)
+}
+
 /// Rejects exactly `not_ready` while the stack starts, `unavailable` when it cannot.
 #[tauri::command]
 fn desktop_connection(state: tauri::State<'_, AppState>) -> Result<ConnectionDto, String> {
@@ -197,7 +223,9 @@ fn start_stack(data_dir: PathBuf) -> Result<Stack, String> {
         .parent()
         .ok_or("no executable directory")?
         .join(format!("{BACKEND}{}", std::env::consts::EXE_SUFFIX));
-    Stack::start(Config::production(backend, &data_dir))
+    let mut cfg = Config::production(backend, &data_dir);
+    cfg.local_ai = LocalAi::from_env()?;
+    Stack::start(cfg)
 }
 
 /// Capture uses Cmd+Option+Space. Dictation uses Cmd+Option+D. Both have
@@ -240,6 +268,7 @@ fn register_hotkey(app: &tauri::AppHandle, handle: &Handle) {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             health,
@@ -248,7 +277,10 @@ pub fn run() {
             capture_state,
             capture_cancel,
             capture_prepare_mic,
-            show_main_window
+            show_main_window,
+            ollama_status,
+            pick_folder,
+            reveal_path
         ])
         .setup(|app| {
             let state = app.state::<AppState>();

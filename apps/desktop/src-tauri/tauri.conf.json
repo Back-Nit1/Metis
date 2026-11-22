@@ -21,7 +21,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": ["app", "dmg", "msi", "nsis", "deb", "appimage"],
     "icon": ["icons/icon.png"],
     "externalBin": ["binaries/metis-backend"],
     "macOS": { "minimumSystemVersion": "11.0" }

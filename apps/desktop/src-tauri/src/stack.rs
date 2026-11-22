@@ -26,6 +26,95 @@ const MAX_LINE: u64 = 8192;
 const MAX_EVENTS: usize = 200;
 const LOG_CAP_BYTES: u64 = 5 * 1024 * 1024;
 pub const CORS_ORIGINS: &str = "tauri://localhost,http://tauri.localhost";
+/// Ollama's default loopback endpoint (read by `LocalConfig.from_env`).
+pub const DEFAULT_LOCAL_LLM_ENDPOINT: &str = "http://127.0.0.1:11434";
+const EMBED_ENGINES: [&str; 3] = ["auto", "fixture", "local"];
+
+/// Local AI settings for the API and worker: embeddings via Ollama on loopback
+/// plus worker parallelism. Defaults, or the same `METIS_*` vars from the app's
+/// own environment (the children never inherit the host env directly).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalAi {
+    pub embed_engine: String,
+    pub embed_model: String,
+    /// Normalised `http://127.0.0.1:<port>` (loopback only, ADR 0004 §4).
+    pub endpoint: String,
+    pub port: u16,
+    pub worker_processes: u32,
+}
+
+impl Default for LocalAi {
+    fn default() -> Self {
+        Self::resolve(|_| None).expect("defaults are valid")
+    }
+}
+
+impl LocalAi {
+    pub fn from_env() -> Result<Self, String> {
+        Self::resolve(|k| std::env::var(k).ok())
+    }
+
+    /// `get` looks up an override; empty values count as unset.
+    pub fn resolve(get: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let var = |k: &str, d: &str| {
+            get(k)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| d.to_string())
+        };
+        let embed_engine = var("METIS_EMBED_ENGINE", "auto").to_lowercase();
+        if !EMBED_ENGINES.contains(&embed_engine.as_str()) {
+            return Err(format!(
+                "METIS_EMBED_ENGINE must be one of {EMBED_ENGINES:?}; got {embed_engine:?}"
+            ));
+        }
+        let port = loopback_port(&var("METIS_LOCAL_LLM_ENDPOINT", DEFAULT_LOCAL_LLM_ENDPOINT))
+            .ok_or("METIS_LOCAL_LLM_ENDPOINT must be http://127.0.0.1:<port> (loopback only)")?;
+        let worker_processes = var("METIS_WORKER_PROCESSES", "3")
+            .parse()
+            .ok()
+            .filter(|n| (1..=32).contains(n))
+            .ok_or("METIS_WORKER_PROCESSES must be an integer from 1 to 32")?;
+        Ok(Self {
+            embed_engine,
+            embed_model: var("METIS_LOCAL_EMBED_MODEL", "nomic-embed-text"),
+            endpoint: format!("http://127.0.0.1:{port}"),
+            port,
+            worker_processes,
+        })
+    }
+
+    /// Vars for one child. Speech needs none; only the worker gets parallelism.
+    pub fn env(&self, kind: Kind) -> Vec<(String, String)> {
+        if kind == Kind::Speech {
+            return vec![];
+        }
+        let mut e = vec![
+            ("METIS_EMBED_ENGINE".into(), self.embed_engine.clone()),
+            ("METIS_LOCAL_EMBED_MODEL".into(), self.embed_model.clone()),
+            ("METIS_LOCAL_LLM_ENDPOINT".into(), self.endpoint.clone()),
+        ];
+        if kind == Kind::Worker {
+            e.push((
+                "METIS_WORKER_PROCESSES".into(),
+                self.worker_processes.to_string(),
+            ));
+        }
+        e
+    }
+}
+
+/// Port of `http://127.0.0.1:<port>` or `http://localhost:<port>` (optional
+/// trailing `/`); anything else — other hosts, paths, https, no port — is None.
+fn loopback_port(url: &str) -> Option<u16> {
+    let rest = url.strip_prefix("http://")?;
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    let (host, port) = rest.split_once(':')?;
+    if !matches!(host, "127.0.0.1" | "localhost") || !port.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    port.parse().ok().filter(|p| *p != 0)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -188,6 +277,8 @@ pub struct Config {
     /// and worker instead of the remote loopback speech server. Production
     /// leaves this `None`, so the real model is required.
     pub speech_engine: Option<String>,
+    /// Embedding/Ollama/worker settings for the API and worker.
+    pub local_ai: LocalAi,
 }
 
 impl Config {
@@ -203,6 +294,7 @@ impl Config {
                 s(&["worker"]),
             ],
             speech_engine: None,
+            local_ai: LocalAi::default(),
         }
     }
 }
@@ -693,6 +785,7 @@ impl Orchestrator {
             }
             Kind::Worker => speech_remote(&mut e),
         }
+        e.extend(self.cfg.local_ai.env(kind));
         e
     }
 
@@ -978,6 +1071,79 @@ mod tests {
         let w = r#"{"event":"started","service":"worker","protocol":1,"pid":3}"#;
         assert_eq!(parse_record(Kind::Worker, w), Ok(None));
         assert!(parse_record(Kind::Worker, ok).is_err());
+    }
+
+    fn env_of(pairs: &[(&str, &str)]) -> Result<LocalAi, String> {
+        let m: std::collections::HashMap<_, _> = pairs.iter().copied().collect();
+        LocalAi::resolve(|k| m.get(k).map(|v| v.to_string()))
+    }
+
+    #[test]
+    fn local_ai_defaults() {
+        let d = LocalAi::default();
+        assert_eq!(d.embed_engine, "auto");
+        assert_eq!(d.embed_model, "nomic-embed-text");
+        assert_eq!(d.endpoint, DEFAULT_LOCAL_LLM_ENDPOINT);
+        assert_eq!((d.port, d.worker_processes), (11434, 3));
+        assert_eq!(env_of(&[("METIS_EMBED_ENGINE", " ")]), Ok(d));
+    }
+
+    #[test]
+    fn local_ai_overrides_are_honoured() {
+        let a = env_of(&[
+            ("METIS_EMBED_ENGINE", "LOCAL"),
+            ("METIS_LOCAL_EMBED_MODEL", "mxbai-embed-large"),
+            ("METIS_LOCAL_LLM_ENDPOINT", "http://localhost:5000/"),
+            ("METIS_WORKER_PROCESSES", "8"),
+        ])
+        .unwrap();
+        assert_eq!(a.embed_engine, "local");
+        assert_eq!(a.embed_model, "mxbai-embed-large");
+        assert_eq!(a.endpoint, "http://127.0.0.1:5000");
+        assert_eq!(a.worker_processes, 8);
+    }
+
+    #[test]
+    fn local_ai_rejects_non_loopback_and_bad_values() {
+        for url in [
+            "http://10.0.0.5:11434",
+            "http://0.0.0.0:11434",
+            "https://127.0.0.1:11434",
+            "http://127.0.0.1",
+            "http://127.0.0.1:0",
+            "http://127.0.0.1:11434/api",
+            "http://127.0.0.1.evil.com:80",
+            "http://user@127.0.0.1:11434",
+            "http://127.0.0.1:+80",
+        ] {
+            assert!(
+                env_of(&[("METIS_LOCAL_LLM_ENDPOINT", url)]).is_err(),
+                "{url}"
+            );
+        }
+        assert!(env_of(&[("METIS_EMBED_ENGINE", "cloud")]).is_err());
+        for n in ["0", "33", "-1", "two"] {
+            assert!(env_of(&[("METIS_WORKER_PROCESSES", n)]).is_err(), "{n}");
+        }
+    }
+
+    #[test]
+    fn local_ai_env_goes_to_api_and_worker_only() {
+        let a = LocalAi::default();
+        assert!(a.env(Kind::Speech).is_empty());
+        let keys = |k| a.env(k).into_iter().map(|(k, _)| k).collect::<Vec<_>>();
+        assert_eq!(
+            keys(Kind::Api),
+            [
+                "METIS_EMBED_ENGINE",
+                "METIS_LOCAL_EMBED_MODEL",
+                "METIS_LOCAL_LLM_ENDPOINT"
+            ]
+        );
+        assert_eq!(keys(Kind::Worker).last().unwrap(), "METIS_WORKER_PROCESSES");
+        assert!(a
+            .env(Kind::Worker)
+            .contains(&("METIS_WORKER_PROCESSES".into(), "3".into())));
     }
 
     #[test]

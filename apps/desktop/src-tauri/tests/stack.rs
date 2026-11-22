@@ -67,6 +67,7 @@ fn start(speech: &[&str], api: &[&str], worker: &[&str], policy: Policy) -> Env 
         policy,
         args: [a("speech", speech), a("api", api), a("worker", worker)],
         speech_engine: None,
+        local_ai: Default::default(),
     };
     Env {
         stack: Stack::start(cfg).unwrap(),

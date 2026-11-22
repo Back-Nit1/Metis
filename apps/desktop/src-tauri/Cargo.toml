@@ -21,6 +21,7 @@ cpal = "=0.17.3"
 hound = "=3.5.1"
 ureq = { version = "=3.4.2", default-features = false, features = ["json"] }
 tauri-plugin-global-shortcut = "=2.4.0"
+tauri-plugin-dialog = "=2.8.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

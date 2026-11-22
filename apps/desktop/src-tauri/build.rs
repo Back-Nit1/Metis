@@ -10,6 +10,9 @@ fn main() {
             "capture_cancel",
             "capture_prepare_mic",
             "show_main_window",
+            "ollama_status",
+            "pick_folder",
+            "reveal_path",
         ]),
     ))
     .expect("tauri build");

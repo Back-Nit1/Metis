@@ -771,7 +771,12 @@ impl Controller {
         if n < need {
             Err("no audio received from the microphone (permission pending or device busy)".into())
         } else if peak == 0.0 {
-            Err("the microphone delivered only silence: access is denied in System Settings > Privacy & Security > Microphone, or the input is muted".into())
+            Err(if cfg!(target_os = "macos") {
+                "the microphone delivered only silence: access is denied in System Settings > Privacy & Security > Microphone, or the input is muted"
+            } else {
+                "the microphone delivered only silence: microphone access is denied in the OS privacy settings, or the input is muted"
+            }
+            .into())
         } else {
             Ok(())
         }

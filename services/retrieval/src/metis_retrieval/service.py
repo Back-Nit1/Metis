@@ -15,20 +15,30 @@ is dropped and logged as a bug.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from functools import lru_cache
+from typing import Any, cast
 
+from langchain_core.documents import Document
 from metis_contracts import (
     Event,
     Evidence,
     Memory,
     Project,
+    SourceArtifact,
     Task,
     settings,
 )
+from metis_contracts.api import SearchResult
 from metis_contracts.entities import AvailabilityBlock
-from metis_contracts.enums import TASK_OPEN_STATES
+from metis_contracts.enums import TASK_OPEN_STATES, SourceLifecycle
 from metis_contracts.ports import Clock, Embedder, MemoryStore, StateStore
+
+from .corpus_store import ChunkRow
+from .embedder import semantic_available
+from .retrievers import CorpusLane, MemoryLane, lane_retriever
 
 log = logging.getLogger("metis.retrieval.service")
 
@@ -184,41 +194,142 @@ class RetrievalService:
         limit: int | None = None,
         include_historical: bool = True,
     ) -> tuple[list[tuple[Memory, float]], str | None]:
-        """Scoped candidate retrieval, hydrated against authoritative state.
+        """Hybrid memory-lane retrieval, hydrated against authoritative state.
 
         ``include_historical`` defaults to True because a failed attempt is
         exactly the evidence that explains a blocker — filtering all history
         away would make Metis re-suggest an approach the user already tried.
+        The second element is set only when the memory index is unavailable or
+        failed; keyword-only operation is reported by ``search``.
         """
-        candidates = limit or settings().limits.retrieval_candidates
-        available, degraded = self._memory.health()
-        if not available:
-            # Planning and reminders must keep working without the index.
-            return [], degraded or "the memory index is unavailable"
+        hits, unavailable, _ = self._hybrid(
+            user_id,
+            query=query,
+            project_id=project_id,
+            limit=limit or settings().limits.retrieval_candidates,
+            include_historical=include_historical,
+            origins=("memory",),
+        )
+        return [(h.memory, h.score) for h in hits if h.memory is not None], unavailable
 
-        vector = None
-        if getattr(self._memory, "supports_lexical", False) is False or query.strip():
+    def search(
+        self,
+        user_id: str,
+        *,
+        query: str,
+        project_id: str | None = None,
+        limit: int = 20,
+        include_historical: bool = False,
+        origins: Sequence[str] = (),
+    ) -> tuple[list[SearchResult], str | None]:
+        """Hybrid (semantic + keyword) search over memories and the corpus.
+
+        Every result carries a citation in ``evidence``. A project scope limits
+        the search to that project's memories: corpus chunks have no project.
+        The second element explains any degradation (index down, keyword only).
+        """
+        if project_id is not None:
+            origins = ("memory",)
+        hits, unavailable, keyword_only = self._hybrid(
+            user_id,
+            query=query,
+            project_id=project_id,
+            limit=limit,
+            include_historical=include_historical,
+            origins=origins,
+        )
+        results = [
+            SearchResult(
+                memory_id=h.memory.id if h.memory else None,
+                chunk_id=h.chunk.chunk_id if h.chunk else None,
+                kind=h.memory.kind if h.memory else None,
+                content=h.memory.content if h.memory else h.chunk.content if h.chunk else "",
+                score=h.score,
+                evidence=h.evidence(),
+                project_id=h.memory.project_id if h.memory else None,
+            )
+            for h in hits
+        ]
+        reasons = [r for r in (unavailable, keyword_only) if r]
+        return results, "; ".join(reasons) or None
+
+    def _hybrid(
+        self,
+        user_id: str,
+        *,
+        query: str,
+        project_id: str | None,
+        limit: int,
+        include_historical: bool,
+        origins: Sequence[str],
+    ) -> tuple[list[_Hit], str | None, str | None]:
+        """Fuse semantic + keyword per lane (RRF), cap the corpus share, hydrate.
+
+        Returns ``(hits, unavailable_reason, keyword_only_reason)``.
+        """
+        want_memory = not origins or "memory" in origins
+        corpus_origins = tuple(o for o in origins if o != "memory")
+        corpus = getattr(self._memory, "corpus", None)
+        want_corpus = corpus is not None and (not origins or bool(corpus_origins))
+
+        embed, keyword_only = self._query_embedder(query)
+        unavailable: str | None = None
+        memory_docs: list[Document] = []
+        corpus_docs: list[Document] = []
+
+        if want_memory:
+            available, degraded = self._memory.health()
+            if not available:
+                # Planning and reminders must keep working without the index.
+                unavailable = degraded or "the memory index is unavailable"
+            else:
+                lane = MemoryLane(self._memory, user_id, project_id, include_historical)
+                retriever = lane_retriever(
+                    lane, k=limit, embed=embed, keyword=bool(getattr(self._memory, "supports_lexical", False))
+                )
+                try:
+                    memory_docs = retriever.invoke(query) if retriever else []
+                except Exception as exc:
+                    unavailable = f"retrieval degraded: {exc}"
+        if want_corpus:
+            lane_c = CorpusLane(corpus, user_id, getattr(self._embedder, "model_id", ""), corpus_origins)
+            retriever = lane_retriever(lane_c, k=limit, embed=embed)
             try:
-                vector = self._embedder.embed([query])[0]
+                corpus_docs = retriever.invoke(query) if retriever else []
             except Exception as exc:
-                log.warning("embedding the query failed: %s", exc)
-                vector = None
+                unavailable = "; ".join(filter(None, [unavailable, f"corpus retrieval degraded: {exc}"]))
+
+        memory_hits = self._hydrate_memories(user_id, memory_docs)
+        corpus_hits = self._hydrate_chunks(user_id, corpus, corpus_docs)
+        if want_memory:
+            # Memories are first-class; imported content takes at most its share.
+            share = settings().limits.retrieval_corpus_share_pct
+            corpus_hits = corpus_hits[: max(1, limit * share // 100)]
+        hits = sorted([*memory_hits, *corpus_hits], key=lambda h: h.score, reverse=True)[:limit]
+        return hits, unavailable, keyword_only
+
+    def _query_embedder(self, query: str) -> tuple[Callable[[str], Sequence[float]] | None, str | None]:
+        """A memoised query embedding shared by both lanes, or keyword-only + why."""
+        if not semantic_available(self._embedder):
+            return None, "keyword search only: no semantic embedding model is configured"
+        embedder = self._embedder
+
+        @lru_cache(maxsize=4)
+        def embed(text: str) -> tuple[float, ...]:
+            return tuple(embedder.embed([text])[0])
 
         try:
-            hits = self._memory.query(
-                user_id,
-                vector=vector,
-                text=query if getattr(self._memory, "supports_lexical", False) else None,
-                project_id=project_id,
-                include_historical=include_historical,
-                limit=candidates,
-            )
+            embed(query)
         except Exception as exc:
-            return [], f"retrieval degraded: {exc}"
+            log.warning("embedding the query failed: %s", exc)
+            return None, f"keyword search only: the embedding model is unavailable ({exc})"
+        return embed, None
 
-        hydrated: list[tuple[Memory, float]] = []
+    def _hydrate_memories(self, user_id: str, docs: list[Document]) -> list[_Hit]:
+        hits: list[_Hit] = []
         stale = 0
-        for memory_id, score, _metadata in hits:
+        for doc in docs:
+            memory_id = doc.metadata["id"]
             memory = self._state.get(user_id, "memory", memory_id)
             if memory is None:
                 stale += 1  # deleted or tombstoned since indexing
@@ -229,11 +340,38 @@ class RetrievalService:
             if not self._source_is_current(user_id, memory):
                 stale += 1
                 continue
-            hydrated.append((memory, score))
-
+            hits.append(_Hit(score=doc.metadata["score"], matched=doc.metadata["matched"], memory=memory))
         if stale:
-            log.info("dropped %d stale or inaccessible candidates", stale)
-        return hydrated, None
+            log.info("dropped %d stale or inaccessible memory candidates", stale)
+        return hits
+
+    def _hydrate_chunks(self, user_id: str, corpus: Any, docs: list[Document]) -> list[_Hit]:
+        """A chunk is evidence only while its source exists, is live and is at
+        the chunk's version."""
+        if not docs:
+            return []
+        rows = corpus.get(user_id, [d.metadata["id"] for d in docs])
+        hits: list[_Hit] = []
+        for doc in docs:
+            chunk = rows.get(doc.metadata["id"])
+            if chunk is None:
+                continue
+            if chunk.user_id != user_id:
+                log.error("chunk %s belongs to another owner; dropped", chunk.chunk_id)
+                continue
+            source = self._state.get(user_id, "source", chunk.source_id)
+            if (
+                source is None
+                or source.user_id != user_id
+                or source.tombstoned_at is not None
+                or source.lifecycle is SourceLifecycle.TOMBSTONED
+                or source.current_version != chunk.source_version
+            ):
+                continue
+            hits.append(
+                _Hit(score=doc.metadata["score"], matched=doc.metadata["matched"], chunk=chunk, source=source)
+            )
+        return hits
 
     def _source_is_current(self, user_id: str, memory: Memory) -> bool:
         """A memory indexed from an older source revision is not evidence for now."""
@@ -262,39 +400,81 @@ class RetrievalService:
         """
         cap = per_task or settings().limits.retrieval_evidence_per_task
         query = " ".join(filter(None, [task.title, task.body or ""]))[:500]
-        memories, degraded = self.retrieve_supporting_memories(
-            user_id, query=query, project_id=task.project_id
+        hits, degraded, _ = self._hybrid(
+            user_id,
+            query=query,
+            project_id=task.project_id,
+            limit=settings().limits.retrieval_candidates,
+            include_historical=True,
+            origins=(),
         )
-        if degraded:
+        if degraded and not hits:
             log.info("no evidence for task %s: %s", task.id, degraded)
             return []
 
         seen_sources: set[str] = set()
         evidence: list[Evidence] = []
-        for memory, _score in memories:
+        for hit in hits:
             if len(evidence) >= cap:
                 break
-            ref = memory.source_refs[0] if memory.source_refs else None
-            if ref is None:
+            item = hit.evidence()
+            if item is None:
                 continue
-            key = f"{ref.source_id}:{ref.source_version}"
+            key = f"{item.source_id}:{item.source_version}"
             if key in seen_sources:
                 continue
-            if not budget.admit(memory.content):
+            if not budget.admit(item.excerpt):
                 break
             seen_sources.add(key)
-            evidence.append(
-                Evidence(
-                    source_id=ref.source_id,
-                    source_version=ref.source_version,
-                    span_ref=ref.span_ref,
-                    memory_id=memory.id,
-                    excerpt=memory.content[:2000],
-                    recorded_at=memory.effective_at,
-                    # A failed attempt stays retrievable, labelled historical.
-                    validity="historical"
-                    if memory.kind.value in ("attempt", "work_log")
-                    else memory.validity.value,
-                )
-            )
+            evidence.append(item)
         return evidence
+
+
+@dataclass
+class _Hit:
+    """One hydrated candidate from either lane."""
+
+    score: float
+    matched: list[Any]
+    memory: Memory | None = None
+    chunk: ChunkRow | None = None
+    source: SourceArtifact | None = None
+
+    def evidence(self) -> Any:
+        """The citation. Corpus excerpts are labelled by origin so a file or
+        email is never presented as the user's own decision."""
+        if self.memory is not None:
+            ref = self.memory.source_refs[0] if self.memory.source_refs else None
+            if ref is None:
+                return None
+            return Evidence(
+                source_id=ref.source_id,
+                source_version=ref.source_version,
+                span_ref=ref.span_ref,
+                memory_id=self.memory.id,
+                excerpt=self.memory.content[:2000],
+                recorded_at=self.memory.effective_at,
+                # A failed attempt stays retrievable, labelled historical.
+                validity="historical"
+                if self.memory.kind.value in ("attempt", "work_log")
+                else self.memory.validity.value,
+                origin="memory",
+                matched=self.matched,
+            )
+        assert self.chunk is not None and self.source is not None
+        chunk = self.chunk
+        return Evidence(
+            source_id=chunk.source_id,
+            source_version=chunk.source_version,
+            span_ref=f"chunk:{chunk.start_char}-{chunk.end_char}",
+            excerpt=chunk.content[:2000],
+            recorded_at=(self.source.origin.modified_at if self.source.origin else None)
+            or self.source.captured_at,
+            origin=cast(Any, chunk.origin if chunk.origin in ("file", "email", "drive") else "file"),
+            chunk_id=chunk.chunk_id,
+            title=chunk.title[:500],
+            uri=chunk.uri[:2000],
+            start_char=chunk.start_char,
+            end_char=chunk.end_char,
+            matched=self.matched,
+        )

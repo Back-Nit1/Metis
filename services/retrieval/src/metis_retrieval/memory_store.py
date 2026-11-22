@@ -23,6 +23,7 @@ from typing import Any
 
 from metis_contracts import AdapterMode, ErrorCode, Memory, MetisError, settings
 
+from .corpus_store import CorpusStore, run_schema
 from .embedder import cosine
 
 log = logging.getLogger("metis.retrieval.store")
@@ -95,9 +96,12 @@ class SqliteMemoryStore:
         if target != ":memory:":
             Path(target).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(target, check_same_thread=False, isolation_level=None)
+        # timeout = busy timeout: several ingest workers write this file concurrently.
+        self._conn = sqlite3.connect(target, check_same_thread=False, isolation_level=None, timeout=10)
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(SCHEMA)
+        run_schema(self._conn, SCHEMA)
+        #: Corpus lane in the same file (spec §4); separate tables, same owner rules.
+        self.corpus = CorpusStore(self._conn, self._lock)
 
     @property
     def supports_metadata_filter(self) -> bool:

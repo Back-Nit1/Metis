@@ -14,6 +14,7 @@ Chunking rules that matter more than the search algorithm:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from metis_contracts import (
@@ -75,12 +76,57 @@ def context_window(text: str, *, start: int, end: int, pad: int = 160) -> str:
     return " ".join(snippet.split())
 
 
+def memory_content_for(item: Any, source: SourceArtifact) -> str:
+    """Memory text for one extracted item: the span's context window when the
+    item cites a span of ``source``, else its title + body."""
+    text = source.current_text() or ""
+    ref = item.evidence[0] if getattr(item, "evidence", None) else None
+    span = next((s for s in source.spans if ref is not None and s.span_ref == ref.span_ref), None)
+    if span is not None and text:
+        return context_window(text, start=span.start_char, end=span.end_char)
+    return " ".join(filter(None, [item.title, item.body or ""]))
+
+
+CHUNK_SIZE = 2000  # characters (~500 tokens)
+CHUNK_OVERLAP = 240  # characters (~60 tokens)
+
+
+@dataclass(frozen=True)
+class Chunk:
+    start_char: int
+    end_char: int
+    text: str
+    """Verbatim slice ``extracted[start_char:end_char]``: what citations quote."""
+    embed_text: str
+    """``text`` prefixed with its context line, so a chunk stands alone."""
+
+    @property
+    def span_ref(self) -> str:
+        return f"chunk:{self.start_char}-{self.end_char}"
+
+
+def chunk_text(text: str, *, title: str, path: str) -> list[Chunk]:
+    """Structural split (paragraphs, lines, words) packed to ~2000 chars."""
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP, add_start_index=True
+    )
+    context = f"{title} › {path}"  # noqa: RUF001 - the spec's context separator
+    chunks: list[Chunk] = []
+    for doc in splitter.create_documents([text]):
+        start = int(doc.metadata.get("start_index", -1))
+        if start < 0 or text[start : start + len(doc.page_content)] != doc.page_content:
+            continue  # the splitter could not locate its own slice; never cite a guessed span
+        end = start + len(doc.page_content)
+        chunks.append(Chunk(start, end, doc.page_content, f"{context}\n{doc.page_content}"))
+    return chunks
+
+
 def memories_from_proposal(
     proposal: Any, source: SourceArtifact, *, clock: Any, embedding_model_id: str, dimensions: int
 ) -> list[Memory]:
     """Build one memory unit per meaningful extracted item."""
-    text = source.current_text() or ""
-    spans = {span.span_ref: span for span in source.spans}
     now = clock.now()
     memories: list[Memory] = []
 
@@ -91,12 +137,7 @@ def memories_from_proposal(
         ref = item.evidence[0] if item.evidence else None
         if ref is None:
             continue  # a memory without a source cannot be evidence
-        span = spans.get(ref.span_ref or "")
-        content = (
-            context_window(text, start=span.start_char, end=span.end_char)
-            if span
-            else " ".join(filter(None, [item.title, item.body or ""]))
-        )
+        content = memory_content_for(item, source)
         if not content.strip():
             continue
         memories.append(

@@ -23,7 +23,7 @@ four Metis systemd services, and verifies `/v1/health`. The VM identity has only
 
 The API edge emits structured Caddy access logs. The queue observer reads
 SQLite in read-only mode once per minute and emits only aggregate outbox counts
-and the oldest-ready age; it never logs job payloads or user data.
+and the oldest-waiting age; it never logs job payloads or user data.
 
 ## Power schedule
 

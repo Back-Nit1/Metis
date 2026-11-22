@@ -78,7 +78,7 @@ upsert_distribution_metric() {
   fi
 }
 
-caddy_access_filter='resource.type="gce_instance" AND jsonPayload._SYSTEMD_UNIT="caddy.service" AND jsonPayload.MESSAGE=~"\"logger\":\"http\\.log\\.access\\.[^\"]+\""'
+caddy_access_filter='resource.type="gce_instance" AND jsonPayload._SYSTEMD_UNIT="caddy.service" AND jsonPayload.MESSAGE:"\"logger\":\"http.log.access.log0\""'
 upsert_counter_metric metis_caddy_requests \
   "All Caddy requests handled by the Metis public edge" "$caddy_access_filter"
 upsert_counter_metric metis_caddy_5xx \

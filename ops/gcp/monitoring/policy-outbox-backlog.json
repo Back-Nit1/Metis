@@ -20,7 +20,7 @@
       }
     },
     {
-      "displayName": "Oldest ready outbox job exceeds five minutes",
+      "displayName": "Oldest waiting outbox job exceeds five minutes",
       "conditionThreshold": {
         "filter": "resource.type=\"gce_instance\" AND metric.type=\"logging.googleapis.com/user/metis_outbox_oldest_age_seconds\"",
         "comparison": "COMPARISON_GT",

@@ -490,12 +490,12 @@ def _maybe_reminder(
 def _record_memory(ctx: RequestContext, item: ExtractedItem, source: Any, now: datetime) -> None:
     """Persist a thought/decision/work log as memory and request indexing."""
     from metis_contracts import Memory, OutboxEvent
-    from metis_retrieval import KIND_MAP, content_hash
+    from metis_retrieval import KIND_MAP, content_hash, memory_content_for
 
     kind = KIND_MAP.get(item.kind)
     if kind is None:
         return
-    content = " ".join(filter(None, [item.title, item.body or ""]))[:8000]
+    content = memory_content_for(item, source)[:8000]
     if not content.strip():
         return
     ref = _ref(item, source)

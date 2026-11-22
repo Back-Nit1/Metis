@@ -36,7 +36,7 @@ for upstream in "${upstreams[@]}"; do
 done
 
 printf '%s {\n' "$HOST"
-printf '\tlog metis_access {\n'
+printf '\tlog {\n'
 printf '\t\toutput stdout\n'
 printf '\t\tformat json {\n'
 printf '\t\t\tduration_format seconds\n'

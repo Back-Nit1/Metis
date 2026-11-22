@@ -45,7 +45,11 @@ def _parse_pdf(path: Path) -> str:
     except MetisError:
         raise
     except Exception as exc:
-        raise MetisError(ErrorCode.VALIDATION_FAILED, f"{path.name} is not a readable PDF: {exc}"[:500]) from exc
+        raise MetisError(
+            ErrorCode.VALIDATION_FAILED, f"{path.name} is not a readable PDF: {exc}"[:500]
+        ) from exc
     if not text.strip():
-        raise MetisError(ErrorCode.UNSUPPORTED_MEDIA, f"{path.name} has no text layer (scanned PDFs are not OCR'd)")
+        raise MetisError(
+            ErrorCode.UNSUPPORTED_MEDIA, f"{path.name} has no text layer (scanned PDFs are not OCR'd)"
+        )
     return text

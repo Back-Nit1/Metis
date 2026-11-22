@@ -23,6 +23,7 @@ from typing import Any
 
 from metis_contracts import AdapterMode, ErrorCode, Memory, MetisError, settings
 
+from .corpus_store import CorpusStore
 from .embedder import cosine
 
 log = logging.getLogger("metis.retrieval.store")
@@ -98,6 +99,8 @@ class SqliteMemoryStore:
         self._conn = sqlite3.connect(target, check_same_thread=False, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        #: Corpus lane in the same file (spec §4); separate tables, same owner rules.
+        self.corpus = CorpusStore(self._conn, self._lock)
 
     @property
     def supports_metadata_filter(self) -> bool:

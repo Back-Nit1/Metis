@@ -124,6 +124,7 @@ from datetime import timedelta
 
 GMAIL_BACKFILL = timedelta(days=30)
 
+
 def gmail_backfill_query(clock: Clock) -> str:
     # clock.now() is timezone-aware UTC (datetime.now(UTC) in production,
     # a controllable clock in tests/e2e). Gmail's after: accepts epoch seconds,

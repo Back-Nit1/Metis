@@ -1360,6 +1360,19 @@
               "title": "Captured At",
               "type": "string"
             },
+            "chunk_count": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Count"
+            },
             "client_capture_id": {
               "anyOf": [
                 {
@@ -1436,6 +1449,17 @@
               "anyOf": [
                 {
                   "$ref": "#/$defs/ObjectRef"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "origin": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceOrigin"
                 },
                 {
                   "type": "null"
@@ -1539,7 +1563,10 @@
             "audio",
             "text",
             "image",
-            "document"
+            "document",
+            "file",
+            "email",
+            "drive_file"
           ],
           "title": "SourceKind",
           "type": "string"
@@ -1555,6 +1582,87 @@
           ],
           "title": "SourceLifecycle",
           "type": "string"
+        },
+        "SourceOrigin": {
+          "additionalProperties": false,
+          "description": "Where an imported source came from. ``external_version`` changing is what\nbumps ``SourceArtifact.current_version``.",
+          "properties": {
+            "connector_id": {
+              "maxLength": 128,
+              "minLength": 3,
+              "title": "Connector Id",
+              "type": "string"
+            },
+            "external_id": {
+              "maxLength": 2000,
+              "minLength": 1,
+              "title": "External Id",
+              "type": "string"
+            },
+            "external_version": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "External Version",
+              "type": "string"
+            },
+            "mime_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Mime Type"
+            },
+            "modified_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Modified At"
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Size Bytes"
+            },
+            "title": {
+              "maxLength": 500,
+              "title": "Title",
+              "type": "string"
+            },
+            "uri": {
+              "maxLength": 2000,
+              "title": "Uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "connector_id",
+            "external_id",
+            "external_version",
+            "uri",
+            "title"
+          ],
+          "title": "SourceOrigin",
+          "type": "object"
         },
         "SourceRef": {
           "additionalProperties": false,
@@ -2072,6 +2180,19 @@
               "title": "Captured At",
               "type": "string"
             },
+            "chunk_count": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Count"
+            },
             "client_capture_id": {
               "anyOf": [
                 {
@@ -2148,6 +2269,17 @@
               "anyOf": [
                 {
                   "$ref": "#/$defs/ObjectRef"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "origin": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceOrigin"
                 },
                 {
                   "type": "null"
@@ -2251,7 +2383,10 @@
             "audio",
             "text",
             "image",
-            "document"
+            "document",
+            "file",
+            "email",
+            "drive_file"
           ],
           "title": "SourceKind",
           "type": "string"
@@ -2267,6 +2402,87 @@
           ],
           "title": "SourceLifecycle",
           "type": "string"
+        },
+        "SourceOrigin": {
+          "additionalProperties": false,
+          "description": "Where an imported source came from. ``external_version`` changing is what\nbumps ``SourceArtifact.current_version``.",
+          "properties": {
+            "connector_id": {
+              "maxLength": 128,
+              "minLength": 3,
+              "title": "Connector Id",
+              "type": "string"
+            },
+            "external_id": {
+              "maxLength": 2000,
+              "minLength": 1,
+              "title": "External Id",
+              "type": "string"
+            },
+            "external_version": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "External Version",
+              "type": "string"
+            },
+            "mime_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Mime Type"
+            },
+            "modified_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Modified At"
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Size Bytes"
+            },
+            "title": {
+              "maxLength": 500,
+              "title": "Title",
+              "type": "string"
+            },
+            "uri": {
+              "maxLength": 2000,
+              "title": "Uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "connector_id",
+            "external_id",
+            "external_version",
+            "uri",
+            "title"
+          ],
+          "title": "SourceOrigin",
+          "type": "object"
         },
         "SourceSpan": {
           "additionalProperties": false,
@@ -2561,6 +2777,193 @@
       "type": "object",
       "x-contract-version": 1
     },
+    "Change": {
+      "$id": "https://metis.local/schemas/v1/Change.json",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "tombstoned": {
+          "default": false,
+          "title": "Tombstoned",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "seq",
+        "kind",
+        "id"
+      ],
+      "title": "Change",
+      "type": "object",
+      "x-contract-version": 1
+    },
+    "ChangesResponse": {
+      "$defs": {
+        "Change": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "maxLength": 128,
+              "minLength": 3,
+              "title": "Id",
+              "type": "string"
+            },
+            "kind": {
+              "title": "Kind",
+              "type": "string"
+            },
+            "revision": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Revision"
+            },
+            "seq": {
+              "minimum": 1,
+              "title": "Seq",
+              "type": "integer"
+            },
+            "tombstoned": {
+              "default": false,
+              "title": "Tombstoned",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "id"
+          ],
+          "title": "Change",
+          "type": "object"
+        },
+        "LaneStats": {
+          "additionalProperties": false,
+          "properties": {
+            "dead_letter": {
+              "default": 0,
+              "title": "Dead Letter",
+              "type": "integer"
+            },
+            "failed": {
+              "default": 0,
+              "title": "Failed",
+              "type": "integer"
+            },
+            "lane": {
+              "enum": [
+                "interactive",
+                "ingest"
+              ],
+              "title": "Lane",
+              "type": "string"
+            },
+            "leased": {
+              "default": 0,
+              "title": "Leased",
+              "type": "integer"
+            },
+            "pending": {
+              "default": 0,
+              "title": "Pending",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "lane"
+          ],
+          "title": "LaneStats",
+          "type": "object"
+        },
+        "QueueStats": {
+          "additionalProperties": false,
+          "properties": {
+            "lanes": {
+              "items": {
+                "$ref": "#/$defs/LaneStats"
+              },
+              "title": "Lanes",
+              "type": "array"
+            }
+          },
+          "title": "QueueStats",
+          "type": "object"
+        }
+      },
+      "$id": "https://metis.local/schemas/v1/ChangesResponse.json",
+      "additionalProperties": false,
+      "description": "Long-poll change feed. ``cursor`` is the last ``seq`` returned; pass it\nback as ``after``. ``reset`` means the cursor is unknown: refetch everything.",
+      "properties": {
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/Change"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "cursor": {
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "queue": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QueueStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reset": {
+          "default": false,
+          "title": "Reset",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cursor"
+      ],
+      "title": "ChangesResponse",
+      "type": "object",
+      "x-contract-version": 1
+    },
     "ChooseTargetRequest": {
       "$id": "https://metis.local/schemas/v1/ChooseTargetRequest.json",
       "additionalProperties": false,
@@ -2759,6 +3162,513 @@
       "type": "object",
       "x-contract-version": 1
     },
+    "Connector": {
+      "$defs": {
+        "ConnectorConfig": {
+          "additionalProperties": false,
+          "description": "Local-folder roots and globs. Provider connectors add their own filters later.",
+          "properties": {
+            "backfill_days": {
+              "default": 30,
+              "maximum": 3650,
+              "minimum": 1,
+              "title": "Backfill Days",
+              "type": "integer"
+            },
+            "exclude_globs": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Exclude Globs",
+              "type": "array"
+            },
+            "include_globs": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Include Globs",
+              "type": "array"
+            },
+            "paths": {
+              "items": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Paths",
+              "type": "array"
+            },
+            "sync_interval_seconds": {
+              "default": 900,
+              "maximum": 86400,
+              "minimum": 60,
+              "title": "Sync Interval Seconds",
+              "type": "integer"
+            }
+          },
+          "title": "ConnectorConfig",
+          "type": "object"
+        },
+        "ConnectorKind": {
+          "enum": [
+            "local_folder",
+            "gmail",
+            "gdrive"
+          ],
+          "title": "ConnectorKind",
+          "type": "string"
+        },
+        "ConnectorStatus": {
+          "enum": [
+            "active",
+            "paused",
+            "needs_auth",
+            "error"
+          ],
+          "title": "ConnectorStatus",
+          "type": "string"
+        }
+      },
+      "$id": "https://metis.local/schemas/v1/Connector.json",
+      "additionalProperties": false,
+      "description": "A data stream Metis syncs from. Secrets are never stored here: OAuth\ntokens live in the OS credential store, keyed by connector id.",
+      "properties": {
+        "allow_cloud_models": {
+          "default": false,
+          "title": "Allow Cloud Models",
+          "type": "boolean"
+        },
+        "config": {
+          "$ref": "#/$defs/ConnectorConfig"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "title": "Id",
+          "type": "string"
+        },
+        "item_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Item Count",
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/ConnectorKind"
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Error"
+        },
+        "last_sync_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Sync At"
+        },
+        "next_sync_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Sync At"
+        },
+        "revision": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/ConnectorStatus",
+          "default": "active"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "user_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "created_at",
+        "updated_at",
+        "kind",
+        "title"
+      ],
+      "title": "Connector",
+      "type": "object",
+      "x-contract-version": 1
+    },
+    "ConnectorConfig": {
+      "$id": "https://metis.local/schemas/v1/ConnectorConfig.json",
+      "additionalProperties": false,
+      "description": "Local-folder roots and globs. Provider connectors add their own filters later.",
+      "properties": {
+        "backfill_days": {
+          "default": 30,
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Backfill Days",
+          "type": "integer"
+        },
+        "exclude_globs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Exclude Globs",
+          "type": "array"
+        },
+        "include_globs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Include Globs",
+          "type": "array"
+        },
+        "paths": {
+          "items": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Paths",
+          "type": "array"
+        },
+        "sync_interval_seconds": {
+          "default": 900,
+          "maximum": 86400,
+          "minimum": 60,
+          "title": "Sync Interval Seconds",
+          "type": "integer"
+        }
+      },
+      "title": "ConnectorConfig",
+      "type": "object",
+      "x-contract-version": 1
+    },
+    "ConnectorPage": {
+      "$defs": {
+        "Connector": {
+          "additionalProperties": false,
+          "description": "A data stream Metis syncs from. Secrets are never stored here: OAuth\ntokens live in the OS credential store, keyed by connector id.",
+          "properties": {
+            "allow_cloud_models": {
+              "default": false,
+              "title": "Allow Cloud Models",
+              "type": "boolean"
+            },
+            "config": {
+              "$ref": "#/$defs/ConnectorConfig"
+            },
+            "created_at": {
+              "format": "date-time",
+              "title": "Created At",
+              "type": "string"
+            },
+            "cursor": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Cursor"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 3,
+              "title": "Id",
+              "type": "string"
+            },
+            "item_count": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Item Count",
+              "type": "integer"
+            },
+            "kind": {
+              "$ref": "#/$defs/ConnectorKind"
+            },
+            "last_error": {
+              "anyOf": [
+                {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Last Error"
+            },
+            "last_sync_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Last Sync At"
+            },
+            "next_sync_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Sync At"
+            },
+            "revision": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Revision",
+              "type": "integer"
+            },
+            "schema_version": {
+              "const": 1,
+              "default": 1,
+              "title": "Schema Version",
+              "type": "integer"
+            },
+            "status": {
+              "$ref": "#/$defs/ConnectorStatus",
+              "default": "active"
+            },
+            "title": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "updated_at": {
+              "format": "date-time",
+              "title": "Updated At",
+              "type": "string"
+            },
+            "user_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "user_id",
+            "created_at",
+            "updated_at",
+            "kind",
+            "title"
+          ],
+          "title": "Connector",
+          "type": "object"
+        },
+        "ConnectorConfig": {
+          "additionalProperties": false,
+          "description": "Local-folder roots and globs. Provider connectors add their own filters later.",
+          "properties": {
+            "backfill_days": {
+              "default": 30,
+              "maximum": 3650,
+              "minimum": 1,
+              "title": "Backfill Days",
+              "type": "integer"
+            },
+            "exclude_globs": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Exclude Globs",
+              "type": "array"
+            },
+            "include_globs": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Include Globs",
+              "type": "array"
+            },
+            "paths": {
+              "items": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Paths",
+              "type": "array"
+            },
+            "sync_interval_seconds": {
+              "default": 900,
+              "maximum": 86400,
+              "minimum": 60,
+              "title": "Sync Interval Seconds",
+              "type": "integer"
+            }
+          },
+          "title": "ConnectorConfig",
+          "type": "object"
+        },
+        "ConnectorKind": {
+          "enum": [
+            "local_folder",
+            "gmail",
+            "gdrive"
+          ],
+          "title": "ConnectorKind",
+          "type": "string"
+        },
+        "ConnectorStatus": {
+          "enum": [
+            "active",
+            "paused",
+            "needs_auth",
+            "error"
+          ],
+          "title": "ConnectorStatus",
+          "type": "string"
+        }
+      },
+      "$id": "https://metis.local/schemas/v1/ConnectorPage.json",
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "default": true,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Connector"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Cursor"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ConnectorPage",
+      "type": "object",
+      "x-contract-version": 1
+    },
+    "ConnectorSyncPayload": {
+      "$id": "https://metis.local/schemas/v1/ConnectorSyncPayload.json",
+      "additionalProperties": false,
+      "properties": {
+        "connector_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "title": "Connector Id",
+          "type": "string"
+        },
+        "full": {
+          "default": false,
+          "title": "Full",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "connector_id"
+      ],
+      "title": "ConnectorSyncPayload",
+      "type": "object",
+      "x-contract-version": 1
+    },
     "CreateCaptureRequest": {
       "$defs": {
         "SourceKind": {
@@ -2766,7 +3676,10 @@
             "audio",
             "text",
             "image",
-            "document"
+            "document",
+            "file",
+            "email",
+            "drive_file"
           ],
           "title": "SourceKind",
           "type": "string"
@@ -2969,6 +3882,85 @@
         "revision"
       ],
       "title": "CreateCaptureResponse",
+      "type": "object",
+      "x-contract-version": 1
+    },
+    "CreateConnectorRequest": {
+      "$defs": {
+        "ConnectorConfig": {
+          "additionalProperties": false,
+          "description": "Local-folder roots and globs. Provider connectors add their own filters later.",
+          "properties": {
+            "backfill_days": {
+              "default": 30,
+              "maximum": 3650,
+              "minimum": 1,
+              "title": "Backfill Days",
+              "type": "integer"
+            },
+            "exclude_globs": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Exclude Globs",
+              "type": "array"
+            },
+            "include_globs": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Include Globs",
+              "type": "array"
+            },
+            "paths": {
+              "items": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Paths",
+              "type": "array"
+            },
+            "sync_interval_seconds": {
+              "default": 900,
+              "maximum": 86400,
+              "minimum": 60,
+              "title": "Sync Interval Seconds",
+              "type": "integer"
+            }
+          },
+          "title": "ConnectorConfig",
+          "type": "object"
+        }
+      },
+      "$id": "https://metis.local/schemas/v1/CreateConnectorRequest.json",
+      "additionalProperties": false,
+      "description": "Only local folders can be created directly; providers go through OAuth.",
+      "properties": {
+        "config": {
+          "$ref": "#/$defs/ConnectorConfig"
+        },
+        "kind": {
+          "const": "local_folder",
+          "default": "local_folder",
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "config"
+      ],
+      "title": "CreateConnectorRequest",
       "type": "object",
       "x-contract-version": 1
     },
@@ -3551,6 +4543,208 @@
         "title"
       ],
       "title": "CreateTaskRequest",
+      "type": "object",
+      "x-contract-version": 1
+    },
+    "DeadLetter": {
+      "$id": "https://metis.local/schemas/v1/DeadLetter.json",
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "title": "Attempts",
+          "type": "integer"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Message"
+        },
+        "event_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "title": "Event Type",
+          "type": "string"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure"
+        },
+        "lane": {
+          "enum": [
+            "interactive",
+            "ingest"
+          ],
+          "title": "Lane",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Id"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "event_type",
+        "lane",
+        "attempts",
+        "updated_at"
+      ],
+      "title": "DeadLetter",
+      "type": "object",
+      "x-contract-version": 1
+    },
+    "DeadLetterPage": {
+      "$defs": {
+        "DeadLetter": {
+          "additionalProperties": false,
+          "properties": {
+            "attempts": {
+              "title": "Attempts",
+              "type": "integer"
+            },
+            "error_message": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Error Message"
+            },
+            "event_id": {
+              "maxLength": 128,
+              "minLength": 3,
+              "title": "Event Id",
+              "type": "string"
+            },
+            "event_type": {
+              "title": "Event Type",
+              "type": "string"
+            },
+            "failure": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Failure"
+            },
+            "lane": {
+              "enum": [
+                "interactive",
+                "ingest"
+              ],
+              "title": "Lane",
+              "type": "string"
+            },
+            "target_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Target Id"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "updated_at": {
+              "format": "date-time",
+              "title": "Updated At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "event_id",
+            "event_type",
+            "lane",
+            "attempts",
+            "updated_at"
+          ],
+          "title": "DeadLetter",
+          "type": "object"
+        }
+      },
+      "$id": "https://metis.local/schemas/v1/DeadLetterPage.json",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/DeadLetter"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "title": "DeadLetterPage",
       "type": "object",
       "x-contract-version": 1
     },
@@ -4617,10 +5811,48 @@
       "additionalProperties": false,
       "description": "One retrieved, source-backed justification shown to the user.",
       "properties": {
+        "chunk_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Id"
+        },
+        "end_char": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Char"
+        },
         "excerpt": {
           "maxLength": 2000,
           "title": "Excerpt",
           "type": "string"
+        },
+        "matched": {
+          "items": {
+            "enum": [
+              "semantic",
+              "keyword"
+            ],
+            "type": "string"
+          },
+          "title": "Matched",
+          "type": "array"
         },
         "memory_id": {
           "anyOf": [
@@ -4635,6 +5867,17 @@
           ],
           "default": null,
           "title": "Memory Id"
+        },
+        "origin": {
+          "default": "memory",
+          "enum": [
+            "memory",
+            "file",
+            "email",
+            "drive"
+          ],
+          "title": "Origin",
+          "type": "string"
         },
         "recorded_at": {
           "format": "date-time",
@@ -4663,6 +5906,45 @@
           ],
           "default": null,
           "title": "Span Ref"
+        },
+        "start_char": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Char"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "uri": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uri"
         },
         "validity": {
           "default": "current",
@@ -6706,6 +7988,46 @@
       "type": "object",
       "x-contract-version": 1
     },
+    "LaneStats": {
+      "$id": "https://metis.local/schemas/v1/LaneStats.json",
+      "additionalProperties": false,
+      "properties": {
+        "dead_letter": {
+          "default": 0,
+          "title": "Dead Letter",
+          "type": "integer"
+        },
+        "failed": {
+          "default": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "lane": {
+          "enum": [
+            "interactive",
+            "ingest"
+          ],
+          "title": "Lane",
+          "type": "string"
+        },
+        "leased": {
+          "default": 0,
+          "title": "Leased",
+          "type": "integer"
+        },
+        "pending": {
+          "default": 0,
+          "title": "Pending",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "lane"
+      ],
+      "title": "LaneStats",
+      "type": "object",
+      "x-contract-version": 1
+    },
     "LocalDeadline": {
       "$id": "https://metis.local/schemas/v1/LocalDeadline.json",
       "additionalProperties": false,
@@ -8028,10 +9350,48 @@
           "additionalProperties": false,
           "description": "One retrieved, source-backed justification shown to the user.",
           "properties": {
+            "chunk_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Id"
+            },
+            "end_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "End Char"
+            },
             "excerpt": {
               "maxLength": 2000,
               "title": "Excerpt",
               "type": "string"
+            },
+            "matched": {
+              "items": {
+                "enum": [
+                  "semantic",
+                  "keyword"
+                ],
+                "type": "string"
+              },
+              "title": "Matched",
+              "type": "array"
             },
             "memory_id": {
               "anyOf": [
@@ -8046,6 +9406,17 @@
               ],
               "default": null,
               "title": "Memory Id"
+            },
+            "origin": {
+              "default": "memory",
+              "enum": [
+                "memory",
+                "file",
+                "email",
+                "drive"
+              ],
+              "title": "Origin",
+              "type": "string"
             },
             "recorded_at": {
               "format": "date-time",
@@ -8074,6 +9445,45 @@
               ],
               "default": null,
               "title": "Span Ref"
+            },
+            "start_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Start Char"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "uri": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Uri"
             },
             "validity": {
               "default": "current",
@@ -9049,10 +10459,48 @@
           "additionalProperties": false,
           "description": "One retrieved, source-backed justification shown to the user.",
           "properties": {
+            "chunk_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Id"
+            },
+            "end_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "End Char"
+            },
             "excerpt": {
               "maxLength": 2000,
               "title": "Excerpt",
               "type": "string"
+            },
+            "matched": {
+              "items": {
+                "enum": [
+                  "semantic",
+                  "keyword"
+                ],
+                "type": "string"
+              },
+              "title": "Matched",
+              "type": "array"
             },
             "memory_id": {
               "anyOf": [
@@ -9067,6 +10515,17 @@
               ],
               "default": null,
               "title": "Memory Id"
+            },
+            "origin": {
+              "default": "memory",
+              "enum": [
+                "memory",
+                "file",
+                "email",
+                "drive"
+              ],
+              "title": "Origin",
+              "type": "string"
             },
             "recorded_at": {
               "format": "date-time",
@@ -9095,6 +10554,45 @@
               ],
               "default": null,
               "title": "Span Ref"
+            },
+            "start_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Start Char"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "uri": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Uri"
             },
             "validity": {
               "default": "current",
@@ -9559,10 +11057,48 @@
           "additionalProperties": false,
           "description": "One retrieved, source-backed justification shown to the user.",
           "properties": {
+            "chunk_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Id"
+            },
+            "end_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "End Char"
+            },
             "excerpt": {
               "maxLength": 2000,
               "title": "Excerpt",
               "type": "string"
+            },
+            "matched": {
+              "items": {
+                "enum": [
+                  "semantic",
+                  "keyword"
+                ],
+                "type": "string"
+              },
+              "title": "Matched",
+              "type": "array"
             },
             "memory_id": {
               "anyOf": [
@@ -9577,6 +11113,17 @@
               ],
               "default": null,
               "title": "Memory Id"
+            },
+            "origin": {
+              "default": "memory",
+              "enum": [
+                "memory",
+                "file",
+                "email",
+                "drive"
+              ],
+              "title": "Origin",
+              "type": "string"
             },
             "recorded_at": {
               "format": "date-time",
@@ -9605,6 +11152,45 @@
               ],
               "default": null,
               "title": "Span Ref"
+            },
+            "start_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Start Char"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "uri": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Uri"
             },
             "validity": {
               "default": "current",
@@ -10516,10 +12102,48 @@
           "additionalProperties": false,
           "description": "One retrieved, source-backed justification shown to the user.",
           "properties": {
+            "chunk_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Id"
+            },
+            "end_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "End Char"
+            },
             "excerpt": {
               "maxLength": 2000,
               "title": "Excerpt",
               "type": "string"
+            },
+            "matched": {
+              "items": {
+                "enum": [
+                  "semantic",
+                  "keyword"
+                ],
+                "type": "string"
+              },
+              "title": "Matched",
+              "type": "array"
             },
             "memory_id": {
               "anyOf": [
@@ -10534,6 +12158,17 @@
               ],
               "default": null,
               "title": "Memory Id"
+            },
+            "origin": {
+              "default": "memory",
+              "enum": [
+                "memory",
+                "file",
+                "email",
+                "drive"
+              ],
+              "title": "Origin",
+              "type": "string"
             },
             "recorded_at": {
               "format": "date-time",
@@ -10562,6 +12197,45 @@
               ],
               "default": null,
               "title": "Span Ref"
+            },
+            "start_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Start Char"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "uri": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Uri"
             },
             "validity": {
               "default": "current",
@@ -10730,7 +12404,22 @@
         },
         "SearchResult": {
           "additionalProperties": false,
+          "description": "One hybrid-retrieval hit. ``evidence`` is the citation shown to the user.\n\nMemory hits set ``memory_id`` + ``kind``; corpus hits (files, email, Drive)\nset ``chunk_id`` and leave ``kind`` null.",
           "properties": {
+            "chunk_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Id"
+            },
             "content": {
               "title": "Content",
               "type": "string"
@@ -10739,13 +12428,29 @@
               "$ref": "#/$defs/Evidence"
             },
             "kind": {
-              "$ref": "#/$defs/MemoryKind"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/MemoryKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             },
             "memory_id": {
-              "maxLength": 128,
-              "minLength": 3,
-              "title": "Memory Id",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Memory Id"
             },
             "project_id": {
               "anyOf": [
@@ -10768,8 +12473,6 @@
             }
           },
           "required": [
-            "memory_id",
-            "kind",
             "content",
             "score",
             "evidence"
@@ -11582,6 +13285,62 @@
         "auth"
       ],
       "title": "PushSubscription",
+      "type": "object",
+      "x-contract-version": 1
+    },
+    "QueueStats": {
+      "$defs": {
+        "LaneStats": {
+          "additionalProperties": false,
+          "properties": {
+            "dead_letter": {
+              "default": 0,
+              "title": "Dead Letter",
+              "type": "integer"
+            },
+            "failed": {
+              "default": 0,
+              "title": "Failed",
+              "type": "integer"
+            },
+            "lane": {
+              "enum": [
+                "interactive",
+                "ingest"
+              ],
+              "title": "Lane",
+              "type": "string"
+            },
+            "leased": {
+              "default": 0,
+              "title": "Leased",
+              "type": "integer"
+            },
+            "pending": {
+              "default": 0,
+              "title": "Pending",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "lane"
+          ],
+          "title": "LaneStats",
+          "type": "object"
+        }
+      },
+      "$id": "https://metis.local/schemas/v1/QueueStats.json",
+      "additionalProperties": false,
+      "properties": {
+        "lanes": {
+          "items": {
+            "$ref": "#/$defs/LaneStats"
+          },
+          "title": "Lanes",
+          "type": "array"
+        }
+      },
+      "title": "QueueStats",
       "type": "object",
       "x-contract-version": 1
     },
@@ -13595,10 +15354,48 @@
           "additionalProperties": false,
           "description": "One retrieved, source-backed justification shown to the user.",
           "properties": {
+            "chunk_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Id"
+            },
+            "end_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "End Char"
+            },
             "excerpt": {
               "maxLength": 2000,
               "title": "Excerpt",
               "type": "string"
+            },
+            "matched": {
+              "items": {
+                "enum": [
+                  "semantic",
+                  "keyword"
+                ],
+                "type": "string"
+              },
+              "title": "Matched",
+              "type": "array"
             },
             "memory_id": {
               "anyOf": [
@@ -13613,6 +15410,17 @@
               ],
               "default": null,
               "title": "Memory Id"
+            },
+            "origin": {
+              "default": "memory",
+              "enum": [
+                "memory",
+                "file",
+                "email",
+                "drive"
+              ],
+              "title": "Origin",
+              "type": "string"
             },
             "recorded_at": {
               "format": "date-time",
@@ -13641,6 +15449,45 @@
               ],
               "default": null,
               "title": "Span Ref"
+            },
+            "start_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Start Char"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "uri": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Uri"
             },
             "validity": {
               "default": "current",
@@ -13680,7 +15527,22 @@
         },
         "SearchResult": {
           "additionalProperties": false,
+          "description": "One hybrid-retrieval hit. ``evidence`` is the citation shown to the user.\n\nMemory hits set ``memory_id`` + ``kind``; corpus hits (files, email, Drive)\nset ``chunk_id`` and leave ``kind`` null.",
           "properties": {
+            "chunk_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Id"
+            },
             "content": {
               "title": "Content",
               "type": "string"
@@ -13689,13 +15551,29 @@
               "$ref": "#/$defs/Evidence"
             },
             "kind": {
-              "$ref": "#/$defs/MemoryKind"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/MemoryKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             },
             "memory_id": {
-              "maxLength": 128,
-              "minLength": 3,
-              "title": "Memory Id",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Memory Id"
             },
             "project_id": {
               "anyOf": [
@@ -13718,8 +15596,6 @@
             }
           },
           "required": [
-            "memory_id",
-            "kind",
             "content",
             "score",
             "evidence"
@@ -13779,10 +15655,48 @@
           "additionalProperties": false,
           "description": "One retrieved, source-backed justification shown to the user.",
           "properties": {
+            "chunk_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Id"
+            },
+            "end_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "End Char"
+            },
             "excerpt": {
               "maxLength": 2000,
               "title": "Excerpt",
               "type": "string"
+            },
+            "matched": {
+              "items": {
+                "enum": [
+                  "semantic",
+                  "keyword"
+                ],
+                "type": "string"
+              },
+              "title": "Matched",
+              "type": "array"
             },
             "memory_id": {
               "anyOf": [
@@ -13797,6 +15711,17 @@
               ],
               "default": null,
               "title": "Memory Id"
+            },
+            "origin": {
+              "default": "memory",
+              "enum": [
+                "memory",
+                "file",
+                "email",
+                "drive"
+              ],
+              "title": "Origin",
+              "type": "string"
             },
             "recorded_at": {
               "format": "date-time",
@@ -13825,6 +15750,45 @@
               ],
               "default": null,
               "title": "Span Ref"
+            },
+            "start_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Start Char"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "uri": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Uri"
             },
             "validity": {
               "default": "current",
@@ -13865,7 +15829,22 @@
       },
       "$id": "https://metis.local/schemas/v1/SearchResult.json",
       "additionalProperties": false,
+      "description": "One hybrid-retrieval hit. ``evidence`` is the citation shown to the user.\n\nMemory hits set ``memory_id`` + ``kind``; corpus hits (files, email, Drive)\nset ``chunk_id`` and leave ``kind`` null.",
       "properties": {
+        "chunk_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Id"
+        },
         "content": {
           "title": "Content",
           "type": "string"
@@ -13874,13 +15853,29 @@
           "$ref": "#/$defs/Evidence"
         },
         "kind": {
-          "$ref": "#/$defs/MemoryKind"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "memory_id": {
-          "maxLength": 128,
-          "minLength": 3,
-          "title": "Memory Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Id"
         },
         "project_id": {
           "anyOf": [
@@ -13903,8 +15898,6 @@
         }
       },
       "required": [
-        "memory_id",
-        "kind",
         "content",
         "score",
         "evidence"
@@ -14057,7 +16050,10 @@
             "audio",
             "text",
             "image",
-            "document"
+            "document",
+            "file",
+            "email",
+            "drive_file"
           ],
           "title": "SourceKind",
           "type": "string"
@@ -14073,6 +16069,87 @@
           ],
           "title": "SourceLifecycle",
           "type": "string"
+        },
+        "SourceOrigin": {
+          "additionalProperties": false,
+          "description": "Where an imported source came from. ``external_version`` changing is what\nbumps ``SourceArtifact.current_version``.",
+          "properties": {
+            "connector_id": {
+              "maxLength": 128,
+              "minLength": 3,
+              "title": "Connector Id",
+              "type": "string"
+            },
+            "external_id": {
+              "maxLength": 2000,
+              "minLength": 1,
+              "title": "External Id",
+              "type": "string"
+            },
+            "external_version": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "External Version",
+              "type": "string"
+            },
+            "mime_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Mime Type"
+            },
+            "modified_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Modified At"
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Size Bytes"
+            },
+            "title": {
+              "maxLength": 500,
+              "title": "Title",
+              "type": "string"
+            },
+            "uri": {
+              "maxLength": 2000,
+              "title": "Uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "connector_id",
+            "external_id",
+            "external_version",
+            "uri",
+            "title"
+          ],
+          "title": "SourceOrigin",
+          "type": "object"
         },
         "SourceSpan": {
           "additionalProperties": false,
@@ -14350,6 +16427,19 @@
           "title": "Captured At",
           "type": "string"
         },
+        "chunk_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Count"
+        },
         "client_capture_id": {
           "anyOf": [
             {
@@ -14426,6 +16516,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/ObjectRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceOrigin"
             },
             {
               "type": "null"
@@ -14522,6 +16623,120 @@
         "captured_at"
       ],
       "title": "SourceArtifact",
+      "type": "object",
+      "x-contract-version": 1
+    },
+    "SourceIngestPayload": {
+      "$id": "https://metis.local/schemas/v1/SourceIngestPayload.json",
+      "additionalProperties": false,
+      "properties": {
+        "connector_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "title": "Connector Id",
+          "type": "string"
+        },
+        "source_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_version": {
+          "minimum": 1,
+          "title": "Source Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_version",
+        "connector_id"
+      ],
+      "title": "SourceIngestPayload",
+      "type": "object",
+      "x-contract-version": 1
+    },
+    "SourceOrigin": {
+      "$id": "https://metis.local/schemas/v1/SourceOrigin.json",
+      "additionalProperties": false,
+      "description": "Where an imported source came from. ``external_version`` changing is what\nbumps ``SourceArtifact.current_version``.",
+      "properties": {
+        "connector_id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "title": "Connector Id",
+          "type": "string"
+        },
+        "external_id": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "External Id",
+          "type": "string"
+        },
+        "external_version": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "External Version",
+          "type": "string"
+        },
+        "mime_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mime Type"
+        },
+        "modified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modified At"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Bytes"
+        },
+        "title": {
+          "maxLength": 500,
+          "title": "Title",
+          "type": "string"
+        },
+        "uri": {
+          "maxLength": 2000,
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "connector_id",
+        "external_id",
+        "external_version",
+        "uri",
+        "title"
+      ],
+      "title": "SourceOrigin",
       "type": "object",
       "x-contract-version": 1
     },
@@ -15891,10 +18106,48 @@
           "additionalProperties": false,
           "description": "One retrieved, source-backed justification shown to the user.",
           "properties": {
+            "chunk_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Id"
+            },
+            "end_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "End Char"
+            },
             "excerpt": {
               "maxLength": 2000,
               "title": "Excerpt",
               "type": "string"
+            },
+            "matched": {
+              "items": {
+                "enum": [
+                  "semantic",
+                  "keyword"
+                ],
+                "type": "string"
+              },
+              "title": "Matched",
+              "type": "array"
             },
             "memory_id": {
               "anyOf": [
@@ -15909,6 +18162,17 @@
               ],
               "default": null,
               "title": "Memory Id"
+            },
+            "origin": {
+              "default": "memory",
+              "enum": [
+                "memory",
+                "file",
+                "email",
+                "drive"
+              ],
+              "title": "Origin",
+              "type": "string"
             },
             "recorded_at": {
               "format": "date-time",
@@ -15937,6 +18201,45 @@
               ],
               "default": null,
               "title": "Span Ref"
+            },
+            "start_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Start Char"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "uri": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Uri"
             },
             "validity": {
               "default": "current",
@@ -17340,6 +19643,114 @@
       "type": "object",
       "x-contract-version": 1
     },
+    "UpdateConnectorRequest": {
+      "$defs": {
+        "ConnectorConfig": {
+          "additionalProperties": false,
+          "description": "Local-folder roots and globs. Provider connectors add their own filters later.",
+          "properties": {
+            "backfill_days": {
+              "default": 30,
+              "maximum": 3650,
+              "minimum": 1,
+              "title": "Backfill Days",
+              "type": "integer"
+            },
+            "exclude_globs": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Exclude Globs",
+              "type": "array"
+            },
+            "include_globs": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Include Globs",
+              "type": "array"
+            },
+            "paths": {
+              "items": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Paths",
+              "type": "array"
+            },
+            "sync_interval_seconds": {
+              "default": 900,
+              "maximum": 86400,
+              "minimum": 60,
+              "title": "Sync Interval Seconds",
+              "type": "integer"
+            }
+          },
+          "title": "ConnectorConfig",
+          "type": "object"
+        }
+      },
+      "$id": "https://metis.local/schemas/v1/UpdateConnectorRequest.json",
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectorConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expected_revision": {
+          "minimum": 1,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "active",
+                "paused"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "expected_revision"
+      ],
+      "title": "UpdateConnectorRequest",
+      "type": "object",
+      "x-contract-version": 1
+    },
     "UploadInstructions": {
       "$id": "https://metis.local/schemas/v1/UploadInstructions.json",
       "additionalProperties": false,
@@ -17696,10 +20107,48 @@
           "additionalProperties": false,
           "description": "One retrieved, source-backed justification shown to the user.",
           "properties": {
+            "chunk_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Chunk Id"
+            },
+            "end_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "End Char"
+            },
             "excerpt": {
               "maxLength": 2000,
               "title": "Excerpt",
               "type": "string"
+            },
+            "matched": {
+              "items": {
+                "enum": [
+                  "semantic",
+                  "keyword"
+                ],
+                "type": "string"
+              },
+              "title": "Matched",
+              "type": "array"
             },
             "memory_id": {
               "anyOf": [
@@ -17714,6 +20163,17 @@
               ],
               "default": null,
               "title": "Memory Id"
+            },
+            "origin": {
+              "default": "memory",
+              "enum": [
+                "memory",
+                "file",
+                "email",
+                "drive"
+              ],
+              "title": "Origin",
+              "type": "string"
             },
             "recorded_at": {
               "format": "date-time",
@@ -17742,6 +20202,45 @@
               ],
               "default": null,
               "title": "Span Ref"
+            },
+            "start_char": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Start Char"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "uri": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Uri"
             },
             "validity": {
               "default": "current",
@@ -17958,6 +20457,8 @@
     "capture.completed",
     "capture.created",
     "capture.deleted",
+    "connector.sync_requested",
+    "corpus.purge_requested",
     "event.changed",
     "export.requested",
     "extraction.completed",
@@ -17974,6 +20475,7 @@
     "reminder.due",
     "reminder.requested",
     "reminder.schedule_sync",
+    "source.ingest_requested",
     "task.changed",
     "transcript.finalized"
   ],

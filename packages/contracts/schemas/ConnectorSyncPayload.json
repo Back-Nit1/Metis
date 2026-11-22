@@ -1,0 +1,24 @@
+{
+  "$id": "https://metis.local/schemas/v1/ConnectorSyncPayload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "connector_id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "title": "Connector Id",
+      "type": "string"
+    },
+    "full": {
+      "default": false,
+      "title": "Full",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "connector_id"
+  ],
+  "title": "ConnectorSyncPayload",
+  "type": "object",
+  "x-contract-version": 1
+}

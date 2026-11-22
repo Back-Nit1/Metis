@@ -1,0 +1,48 @@
+{
+  "$id": "https://metis.local/schemas/v1/Change.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "title": "Kind",
+      "type": "string"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision"
+    },
+    "seq": {
+      "minimum": 1,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "tombstoned": {
+      "default": false,
+      "title": "Tombstoned",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "seq",
+    "kind",
+    "id"
+  ],
+  "title": "Change",
+  "type": "object",
+  "x-contract-version": 1
+}

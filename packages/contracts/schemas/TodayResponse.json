@@ -388,10 +388,48 @@
       "additionalProperties": false,
       "description": "One retrieved, source-backed justification shown to the user.",
       "properties": {
+        "chunk_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Id"
+        },
+        "end_char": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Char"
+        },
         "excerpt": {
           "maxLength": 2000,
           "title": "Excerpt",
           "type": "string"
+        },
+        "matched": {
+          "items": {
+            "enum": [
+              "semantic",
+              "keyword"
+            ],
+            "type": "string"
+          },
+          "title": "Matched",
+          "type": "array"
         },
         "memory_id": {
           "anyOf": [
@@ -406,6 +444,17 @@
           ],
           "default": null,
           "title": "Memory Id"
+        },
+        "origin": {
+          "default": "memory",
+          "enum": [
+            "memory",
+            "file",
+            "email",
+            "drive"
+          ],
+          "title": "Origin",
+          "type": "string"
         },
         "recorded_at": {
           "format": "date-time",
@@ -434,6 +483,45 @@
           ],
           "default": null,
           "title": "Span Ref"
+        },
+        "start_char": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Char"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "uri": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uri"
         },
         "validity": {
           "default": "current",

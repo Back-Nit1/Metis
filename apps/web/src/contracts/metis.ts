@@ -18,6 +18,19 @@ export enum AttendanceStatus {
   CANCELED = "canceled",
 }
 
+export enum ConnectorKind {
+  LOCAL_FOLDER = "local_folder",
+  GMAIL = "gmail",
+  GDRIVE = "gdrive",
+}
+
+export enum ConnectorStatus {
+  ACTIVE = "active",
+  PAUSED = "paused",
+  NEEDS_AUTH = "needs_auth",
+  ERROR = "error",
+}
+
 export enum DeliveryChannel {
   IN_APP = "in_app",
   WEB_PUSH = "web_push",
@@ -174,6 +187,9 @@ export enum SourceKind {
   TEXT = "text",
   IMAGE = "image",
   DOCUMENT = "document",
+  FILE = "file",
+  EMAIL = "email",
+  DRIVE_FILE = "drive_file",
 }
 
 export enum SourceLifecycle {
@@ -208,6 +224,8 @@ export const EVENT_TYPES = [
   "capture.completed",
   "capture.created",
   "capture.deleted",
+  "connector.sync_requested",
+  "corpus.purge_requested",
   "event.changed",
   "export.requested",
   "extraction.completed",
@@ -224,6 +242,7 @@ export const EVENT_TYPES = [
   "reminder.due",
   "reminder.requested",
   "reminder.schedule_sync",
+  "source.ingest_requested",
   "task.changed",
   "transcript.finalized",
 ] as const;
@@ -347,6 +366,22 @@ export interface CapturePage {
   complete?: boolean;
 }
 
+export interface Change {
+  seq: number;
+  kind: string;
+  id: string;
+  revision?: number | null;
+  tombstoned?: boolean;
+}
+
+/** Long-poll change feed. ``cursor`` is the last ``seq`` returned; pass it */
+export interface ChangesResponse {
+  cursor: number;
+  changes?: Change[];
+  reset?: boolean;
+  queue?: QueueStats | null;
+}
+
 /** Answer an ambiguous status_update: pick one of the recorded candidates. */
 export interface ChooseTargetRequest {
   expected_revision: number;
@@ -383,6 +418,46 @@ export interface ConfidenceHint {
   producer: string;
 }
 
+/** A data stream Metis syncs from. Secrets are never stored here: OAuth */
+export interface Connector {
+  id: string;
+  user_id: string;
+  schema_version?: 1;
+  revision?: number;
+  created_at: string;
+  updated_at: string;
+  kind: ConnectorKind;
+  title: string;
+  status?: ConnectorStatus;
+  config?: ConnectorConfig;
+  cursor?: string | null;
+  last_sync_at?: string | null;
+  next_sync_at?: string | null;
+  last_error?: string | null;
+  item_count?: number;
+  allow_cloud_models?: boolean;
+}
+
+/** Local-folder roots and globs. Provider connectors add their own filters later. */
+export interface ConnectorConfig {
+  paths?: string[];
+  include_globs?: string[];
+  exclude_globs?: string[];
+  sync_interval_seconds?: number;
+  backfill_days?: number;
+}
+
+export interface ConnectorPage {
+  items: Connector[];
+  next_cursor?: string | null;
+  complete?: boolean;
+}
+
+export interface ConnectorSyncPayload {
+  connector_id: string;
+  full?: boolean;
+}
+
 export interface CreateCaptureRequest {
   kind: SourceKind;
   text?: string | null;
@@ -399,6 +474,13 @@ export interface CreateCaptureResponse {
   revision: number;
   upload?: UploadInstructions | null;
   job_id?: string | null;
+}
+
+/** Only local folders can be created directly; providers go through OAuth. */
+export interface CreateConnectorRequest {
+  kind?: "local_folder";
+  title: string;
+  config: ConnectorConfig;
 }
 
 export interface CreateEventRequest {
@@ -456,6 +538,22 @@ export interface CreateTaskRequest {
   duration_estimate?: Estimate | null;
   priority?: number;
   source_refs?: SourceRef[];
+}
+
+export interface DeadLetter {
+  event_id: string;
+  event_type: string;
+  lane: "interactive" | "ingest";
+  target_id?: string | null;
+  attempts: number;
+  failure?: string | null;
+  error_message?: string | null;
+  updated_at: string;
+  title?: string | null;
+}
+
+export interface DeadLetterPage {
+  items?: DeadLetter[];
 }
 
 /** A chosen direction. Superseding preserves the prior decision. */
@@ -559,6 +657,13 @@ export interface Evidence {
   excerpt: string;
   recorded_at: string;
   validity?: "current" | "historical" | "superseded" | "uncertain";
+  origin?: "memory" | "file" | "email" | "drive";
+  chunk_id?: string | null;
+  title?: string | null;
+  uri?: string | null;
+  start_char?: number | null;
+  end_char?: number | null;
+  matched?: "semantic" | "keyword"[];
 }
 
 /** Owner-scoped export state. ``download_url`` exists only once the archive */
@@ -684,6 +789,14 @@ export interface Job {
 export interface JobAccepted {
   job_id: string;
   state: string;
+}
+
+export interface LaneStats {
+  lane: "interactive" | "ingest";
+  pending?: number;
+  leased?: number;
+  failed?: number;
+  dead_letter?: number;
 }
 
 /** A date-only deadline. Kept distinct from a precise instant on purpose. */
@@ -997,6 +1110,10 @@ export interface PushSubscription {
   disabled_at?: string | null;
 }
 
+export interface QueueStats {
+  lanes?: LaneStats[];
+}
+
 /** Base for every owner-scoped persisted entity. */
 export interface Record {
   id: string;
@@ -1102,9 +1219,11 @@ export interface SearchResponse {
   degraded_reason?: string | null;
 }
 
+/** One hybrid-retrieval hit. ``evidence`` is the citation shown to the user. */
 export interface SearchResult {
-  memory_id: string;
-  kind: MemoryKind;
+  memory_id?: string | null;
+  chunk_id?: string | null;
+  kind?: MemoryKind | null;
   content: string;
   score: number;
   evidence: Evidence;
@@ -1145,6 +1264,26 @@ export interface SourceArtifact {
   failure?: FailureCategory | null;
   error_message?: string | null;
   project_id?: string | null;
+  origin?: SourceOrigin | null;
+  chunk_count?: number | null;
+}
+
+export interface SourceIngestPayload {
+  source_id: string;
+  source_version: number;
+  connector_id: string;
+}
+
+/** Where an imported source came from. ``external_version`` changing is what */
+export interface SourceOrigin {
+  connector_id: string;
+  external_id: string;
+  external_version: string;
+  uri: string;
+  title: string;
+  mime_type?: string | null;
+  modified_at?: string | null;
+  size_bytes?: number | null;
 }
 
 /** Pointer to an immutable source revision, optionally a span within it. */
@@ -1314,6 +1453,13 @@ export interface TranscriptionJobResult {
   segments_ref?: string | null;
   failure?: string | null;
   error_message?: string | null;
+}
+
+export interface UpdateConnectorRequest {
+  expected_revision: number;
+  status?: "active" | "paused" | null;
+  title?: string | null;
+  config?: ConnectorConfig | null;
 }
 
 /** Short-lived, owner-prefixed upload permission. The server picks the key. */

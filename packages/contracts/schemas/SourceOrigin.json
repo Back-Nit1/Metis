@@ -1,0 +1,84 @@
+{
+  "$id": "https://metis.local/schemas/v1/SourceOrigin.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Where an imported source came from. ``external_version`` changing is what\nbumps ``SourceArtifact.current_version``.",
+  "properties": {
+    "connector_id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "title": "Connector Id",
+      "type": "string"
+    },
+    "external_id": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "External Id",
+      "type": "string"
+    },
+    "external_version": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "External Version",
+      "type": "string"
+    },
+    "mime_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mime Type"
+    },
+    "modified_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Modified At"
+    },
+    "size_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Size Bytes"
+    },
+    "title": {
+      "maxLength": 500,
+      "title": "Title",
+      "type": "string"
+    },
+    "uri": {
+      "maxLength": 2000,
+      "title": "Uri",
+      "type": "string"
+    }
+  },
+  "required": [
+    "connector_id",
+    "external_id",
+    "external_version",
+    "uri",
+    "title"
+  ],
+  "title": "SourceOrigin",
+  "type": "object",
+  "x-contract-version": 1
+}

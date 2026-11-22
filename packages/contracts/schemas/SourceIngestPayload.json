@@ -1,0 +1,32 @@
+{
+  "$id": "https://metis.local/schemas/v1/SourceIngestPayload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "connector_id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "title": "Connector Id",
+      "type": "string"
+    },
+    "source_id": {
+      "maxLength": 128,
+      "minLength": 3,
+      "title": "Source Id",
+      "type": "string"
+    },
+    "source_version": {
+      "minimum": 1,
+      "title": "Source Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "source_id",
+    "source_version",
+    "connector_id"
+  ],
+  "title": "SourceIngestPayload",
+  "type": "object",
+  "x-contract-version": 1
+}

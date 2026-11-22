@@ -44,6 +44,25 @@ class EventType:
     #: Provider fired. payload: {"local_date": "YYYY-MM-DD", "scheduler_ref"}.
     #: Never trusted: the API re-derives date and validity from preferences.
     DAILY_PLAN_DUE = "plan.daily_due"
+    #: Ingest lane. payload: ConnectorSyncPayload. Scans one connector and
+    #: raises SOURCE_INGEST_REQUESTED per new/changed item.
+    CONNECTOR_SYNC_REQUESTED = "connector.sync_requested"
+    #: Ingest lane. payload: SourceIngestPayload. Parse, chunk, embed one source.
+    #: Malformed input is permanent (dead letter), never retried.
+    SOURCE_INGEST_REQUESTED = "source.ingest_requested"
+    #: Ingest lane. payload: PurgePayload (target_kind="source"). Removes corpus chunks.
+    CORPUS_PURGE_REQUESTED = "corpus.purge_requested"
+
+
+#: Events on the ingest lane. Everything else is interactive. The ingest lane
+#: has a global in-flight cap so bulk imports never starve reminders.
+INGEST_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        EventType.CONNECTOR_SYNC_REQUESTED,
+        EventType.SOURCE_INGEST_REQUESTED,
+        EventType.CORPUS_PURGE_REQUESTED,
+    }
+)
 
 
 ALL_EVENT_TYPES: frozenset[str] = frozenset(
@@ -189,6 +208,18 @@ class PlanRequestedPayload(StrictModel):
     planning_epoch: Annotated[int, Field(ge=0)]
 
 
+class ConnectorSyncPayload(StrictModel):
+    connector_id: EntityId
+    full: bool = False
+    """True re-scans everything (reconnect, expired cursor)."""
+
+
+class SourceIngestPayload(StrictModel):
+    source_id: EntityId
+    source_version: Revision
+    connector_id: EntityId
+
+
 class PurgePayload(StrictModel):
     """Resumable derived-data deletion. `cursor` lets a retry continue."""
 
@@ -208,6 +239,9 @@ PAYLOAD_MODELS: dict[str, type[StrictModel]] = {
     EventType.MEMORY_PURGE_REQUESTED: PurgePayload,
     EventType.CAPTURE_DELETED: PurgePayload,
     EventType.PLAN_REQUESTED: PlanRequestedPayload,
+    EventType.CONNECTOR_SYNC_REQUESTED: ConnectorSyncPayload,
+    EventType.SOURCE_INGEST_REQUESTED: SourceIngestPayload,
+    EventType.CORPUS_PURGE_REQUESTED: PurgePayload,
 }
 
 

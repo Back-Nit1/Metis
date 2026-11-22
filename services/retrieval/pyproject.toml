@@ -3,7 +3,16 @@ name = "metis-retrieval"
 version = "0.1.0"
 description = "Metis semantic memory: ingestion, embeddings and owner-scoped retrieval"
 requires-python = ">=3.12"
-dependencies = ["metis-contracts", "metis-state", "metis-pipeline"]
+dependencies = [
+  "metis-contracts",
+  "metis-state",
+  "metis-pipeline",
+  # D7: LangChain vocabulary for retrieval. Not langchain-classic/community (bundle size).
+  "langchain-core>=1.8,<2",
+  "langchain-text-splitters>=1.1,<2",
+  "langchain-ollama>=1.1,<2",
+  "pypdf>=7.1,<8",
+]
 
 [project.optional-dependencies]
 cloud = ["boto3>=1.35"]

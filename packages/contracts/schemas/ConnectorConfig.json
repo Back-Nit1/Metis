@@ -1,0 +1,51 @@
+{
+  "$id": "https://metis.local/schemas/v1/ConnectorConfig.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Local-folder roots and globs. Provider connectors add their own filters later.",
+  "properties": {
+    "backfill_days": {
+      "default": 30,
+      "maximum": 3650,
+      "minimum": 1,
+      "title": "Backfill Days",
+      "type": "integer"
+    },
+    "exclude_globs": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Exclude Globs",
+      "type": "array"
+    },
+    "include_globs": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Include Globs",
+      "type": "array"
+    },
+    "paths": {
+      "items": {
+        "maxLength": 2000,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Paths",
+      "type": "array"
+    },
+    "sync_interval_seconds": {
+      "default": 900,
+      "maximum": 86400,
+      "minimum": 60,
+      "title": "Sync Interval Seconds",
+      "type": "integer"
+    }
+  },
+  "title": "ConnectorConfig",
+  "type": "object",
+  "x-contract-version": 1
+}

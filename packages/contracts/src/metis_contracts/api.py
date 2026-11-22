@@ -25,6 +25,8 @@ from .common import (
 from .entities import (
     AvailabilityBlock,
     Budgets,
+    Connector,
+    ConnectorConfig,
     Event,
     ExtractedItem,
     ExtractionProposal,
@@ -389,8 +391,14 @@ class SearchRequest(StrictModel):
 
 
 class SearchResult(StrictModel):
-    memory_id: EntityId
-    kind: MemoryKind
+    """One hybrid-retrieval hit. ``evidence`` is the citation shown to the user.
+
+    Memory hits set ``memory_id`` + ``kind``; corpus hits (files, email, Drive)
+    set ``chunk_id`` and leave ``kind`` null."""
+
+    memory_id: EntityId | None = None
+    chunk_id: EntityId | None = None
+    kind: MemoryKind | None = None
     content: str
     score: Annotated[float, Field(ge=0.0)]
     """Ranking signal only — not a probability, priority or factual confidence."""
@@ -488,6 +496,68 @@ class DeleteCaptureResponse(StrictModel):
     purge_job_id: EntityId
 
 
+class CreateConnectorRequest(StrictModel):
+    """Only local folders can be created directly; providers go through OAuth."""
+
+    kind: Literal["local_folder"] = "local_folder"
+    title: Annotated[str, Field(min_length=1, max_length=200)]
+    config: ConnectorConfig
+
+
+class UpdateConnectorRequest(StrictModel):
+    expected_revision: Revision
+    status: Literal["active", "paused"] | None = None
+    title: Annotated[str | None, Field(default=None, min_length=1, max_length=200)] = None
+    config: ConnectorConfig | None = None
+
+
+class LaneStats(StrictModel):
+    lane: Literal["interactive", "ingest"]
+    pending: int = 0
+    leased: int = 0
+    failed: int = 0
+    dead_letter: int = 0
+
+
+class QueueStats(StrictModel):
+    lanes: list[LaneStats] = Field(default_factory=list)
+
+
+class DeadLetter(StrictModel):
+    event_id: EntityId
+    event_type: str
+    lane: Literal["interactive", "ingest"]
+    target_id: EntityId | None = None
+    attempts: int
+    failure: str | None = None
+    error_message: str | None = None
+    updated_at: datetime
+    title: str | None = None
+    """Human label for the poisoned item (file name, email subject) when known."""
+
+
+class DeadLetterPage(StrictModel):
+    items: list[DeadLetter] = Field(default_factory=list)
+
+
+class Change(StrictModel):
+    seq: Annotated[int, Field(ge=1)]
+    kind: str
+    id: EntityId
+    revision: Revision | None = None
+    tombstoned: bool = False
+
+
+class ChangesResponse(StrictModel):
+    """Long-poll change feed. ``cursor`` is the last ``seq`` returned; pass it
+    back as ``after``. ``reset`` means the cursor is unknown: refetch everything."""
+
+    cursor: Annotated[int, Field(ge=0)]
+    changes: list[Change] = Field(default_factory=list)
+    reset: bool = False
+    queue: QueueStats | None = None
+
+
 class HealthResponse(StrictModel):
     status: Literal["ok", "degraded"]
     mode: str
@@ -504,3 +574,4 @@ NotificationPage = Page[Notification]
 ReminderPage = Page[Reminder]
 ProjectPage = Page[Project]
 CapturePage = Page[SourceArtifact]
+ConnectorPage = Page[Connector]

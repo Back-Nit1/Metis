@@ -1,0 +1,141 @@
+{
+  "$defs": {
+    "Change": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 3,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "tombstoned": {
+          "default": false,
+          "title": "Tombstoned",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "seq",
+        "kind",
+        "id"
+      ],
+      "title": "Change",
+      "type": "object"
+    },
+    "LaneStats": {
+      "additionalProperties": false,
+      "properties": {
+        "dead_letter": {
+          "default": 0,
+          "title": "Dead Letter",
+          "type": "integer"
+        },
+        "failed": {
+          "default": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "lane": {
+          "enum": [
+            "interactive",
+            "ingest"
+          ],
+          "title": "Lane",
+          "type": "string"
+        },
+        "leased": {
+          "default": 0,
+          "title": "Leased",
+          "type": "integer"
+        },
+        "pending": {
+          "default": 0,
+          "title": "Pending",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "lane"
+      ],
+      "title": "LaneStats",
+      "type": "object"
+    },
+    "QueueStats": {
+      "additionalProperties": false,
+      "properties": {
+        "lanes": {
+          "items": {
+            "$ref": "#/$defs/LaneStats"
+          },
+          "title": "Lanes",
+          "type": "array"
+        }
+      },
+      "title": "QueueStats",
+      "type": "object"
+    }
+  },
+  "$id": "https://metis.local/schemas/v1/ChangesResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Long-poll change feed. ``cursor`` is the last ``seq`` returned; pass it\nback as ``after``. ``reset`` means the cursor is unknown: refetch everything.",
+  "properties": {
+    "changes": {
+      "items": {
+        "$ref": "#/$defs/Change"
+      },
+      "title": "Changes",
+      "type": "array"
+    },
+    "cursor": {
+      "minimum": 0,
+      "title": "Cursor",
+      "type": "integer"
+    },
+    "queue": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/QueueStats"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "reset": {
+      "default": false,
+      "title": "Reset",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "cursor"
+  ],
+  "title": "ChangesResponse",
+  "type": "object",
+  "x-contract-version": 1
+}

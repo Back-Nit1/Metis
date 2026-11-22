@@ -5,7 +5,10 @@
         "audio",
         "text",
         "image",
-        "document"
+        "document",
+        "file",
+        "email",
+        "drive_file"
       ],
       "title": "SourceKind",
       "type": "string"

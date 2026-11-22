@@ -26,6 +26,8 @@ from .common import (
 from .enums import (
     AdapterMode,
     AttendanceStatus,
+    ConnectorKind,
+    ConnectorStatus,
     DeliveryChannel,
     DeliveryStatus,
     ExtractedItemKind,
@@ -105,6 +107,22 @@ class ObjectRef(StrictModel):
     content_type: str | None = None
 
 
+class SourceOrigin(StrictModel):
+    """Where an imported source came from. ``external_version`` changing is what
+    bumps ``SourceArtifact.current_version``."""
+
+    connector_id: EntityId
+    external_id: Annotated[str, Field(min_length=1, max_length=2000)]
+    """Absolute path for files, message id for email, file id for Drive."""
+    external_version: Annotated[str, Field(min_length=1, max_length=200)]
+    """mtime+size+sha256 for files, historyId/etag for providers."""
+    uri: Annotated[str, Field(max_length=2000)]
+    title: Annotated[str, Field(max_length=500)]
+    mime_type: str | None = None
+    modified_at: datetime | None = None
+    size_bytes: Annotated[int | None, Field(default=None, ge=0)] = None
+
+
 class SourceArtifact(Record):
     """Evidence of what the user said or imported. Immutable per source_version."""
 
@@ -127,6 +145,10 @@ class SourceArtifact(Record):
     error_message: Annotated[str | None, Field(default=None, max_length=1000)] = None
     project_id: EntityId | None = None
     """Project this capture was explicitly attached to by the user; never inferred."""
+    origin: SourceOrigin | None = None
+    """Set only for connector-imported sources (file, email, drive_file)."""
+    chunk_count: Annotated[int | None, Field(default=None, ge=0)] = None
+    """Corpus chunks indexed for ``current_version``; None until ingested."""
 
     def current_text(self) -> str | None:
         for t in self.transcripts:
@@ -667,6 +689,36 @@ class Tombstone(Record):
     purge_completed_at: datetime | None = None
 
 
+class ConnectorConfig(StrictModel):
+    """Local-folder roots and globs. Provider connectors add their own filters later."""
+
+    paths: list[Annotated[str, Field(min_length=1, max_length=2000)]] = Field(
+        default_factory=list, max_length=20
+    )
+    include_globs: list[str] = Field(default_factory=list, max_length=50)
+    exclude_globs: list[str] = Field(default_factory=list, max_length=50)
+    sync_interval_seconds: Annotated[int, Field(ge=60, le=86400)] = 900
+    backfill_days: Annotated[int, Field(ge=1, le=3650)] = 30
+    """Provider connectors only: rolling window computed from the clock at each backfill."""
+
+
+class Connector(Record):
+    """A data stream Metis syncs from. Secrets are never stored here: OAuth
+    tokens live in the OS credential store, keyed by connector id."""
+
+    kind: ConnectorKind
+    title: Annotated[str, Field(min_length=1, max_length=200)]
+    status: ConnectorStatus = ConnectorStatus.ACTIVE
+    config: ConnectorConfig = Field(default_factory=ConnectorConfig)
+    cursor: Annotated[str | None, Field(default=None, max_length=2000)] = None
+    """Opaque sync position: scan stamp, Gmail historyId or Drive pageToken."""
+    last_sync_at: datetime | None = None
+    next_sync_at: datetime | None = None
+    last_error: Annotated[str | None, Field(default=None, max_length=1000)] = None
+    item_count: Annotated[int, Field(ge=0)] = 0
+    allow_cloud_models: bool = False
+
+
 ENTITY_MODELS: dict[str, type[Record]] = {
     "source": SourceArtifact,
     "proposal": ExtractionProposal,
@@ -687,4 +739,5 @@ ENTITY_MODELS: dict[str, type[Record]] = {
     "budget_reservation": BudgetReservation,
     "usage_day": UsageDay,
     "tombstone": Tombstone,
+    "connector": Connector,
 }

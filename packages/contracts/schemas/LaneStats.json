@@ -1,0 +1,41 @@
+{
+  "$id": "https://metis.local/schemas/v1/LaneStats.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "dead_letter": {
+      "default": 0,
+      "title": "Dead Letter",
+      "type": "integer"
+    },
+    "failed": {
+      "default": 0,
+      "title": "Failed",
+      "type": "integer"
+    },
+    "lane": {
+      "enum": [
+        "interactive",
+        "ingest"
+      ],
+      "title": "Lane",
+      "type": "string"
+    },
+    "leased": {
+      "default": 0,
+      "title": "Leased",
+      "type": "integer"
+    },
+    "pending": {
+      "default": 0,
+      "title": "Pending",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "lane"
+  ],
+  "title": "LaneStats",
+  "type": "object",
+  "x-contract-version": 1
+}

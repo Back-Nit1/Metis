@@ -121,6 +121,16 @@ class Evidence(StrictModel):
     excerpt: Annotated[str, Field(max_length=2000)]
     recorded_at: datetime
     validity: Literal["current", "historical", "superseded", "uncertain"] = "current"
+    #: Citation fields. ``origin`` says where the excerpt came from so a file or
+    #: email excerpt is never presented as the user's own decision.
+    origin: Literal["memory", "file", "email", "drive"] = "memory"
+    chunk_id: EntityId | None = None
+    title: Annotated[str | None, Field(default=None, max_length=500)] = None
+    uri: Annotated[str | None, Field(default=None, max_length=2000)] = None
+    """File path, or a provider deep link. Never a presigned or credentialed URL."""
+    start_char: Annotated[int | None, Field(default=None, ge=0)] = None
+    end_char: Annotated[int | None, Field(default=None, ge=0)] = None
+    matched: list[Literal["semantic", "keyword"]] = Field(default_factory=list)
 
 
 class SourceSpan(StrictModel):

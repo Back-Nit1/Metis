@@ -14,6 +14,23 @@ class SourceKind(StrEnum):
     TEXT = "text"
     IMAGE = "image"
     DOCUMENT = "document"
+    #: Imported by a connector. Never captured by the user directly.
+    FILE = "file"
+    EMAIL = "email"
+    DRIVE_FILE = "drive_file"
+
+
+class ConnectorKind(StrEnum):
+    LOCAL_FOLDER = "local_folder"
+    GMAIL = "gmail"
+    GDRIVE = "gdrive"
+
+
+class ConnectorStatus(StrEnum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+    NEEDS_AUTH = "needs_auth"
+    ERROR = "error"
 
 
 class SourceLifecycle(StrEnum):

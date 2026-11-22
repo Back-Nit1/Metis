@@ -26,6 +26,7 @@ import { TasksScreen } from "../screens/TasksScreen";
 import { TodayScreen } from "../screens/TodayScreen";
 import { useOpenReviewListener } from "../lib/openReview";
 import { AuthGate } from "./AuthGate";
+import { SyncProvider } from "../lib/useSync";
 import { SessionProvider, useSession } from "./session";
 
 const SURFACES = ["today", "capture", "inbox", "tasks", "projects", "search", "alerts", "settings"] as const;
@@ -355,9 +356,11 @@ export function App() {
   return (
     <DesktopGate>
       <AuthGate>
-        <SessionProvider>
-          <Shell />
-        </SessionProvider>
+        <SyncProvider>
+          <SessionProvider>
+            <Shell />
+          </SessionProvider>
+        </SyncProvider>
       </AuthGate>
     </DesktopGate>
   );

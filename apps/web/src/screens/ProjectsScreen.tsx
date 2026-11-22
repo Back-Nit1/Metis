@@ -11,6 +11,7 @@ import { Chip, Empty, Loading, Notice, PageHeader, SectionHeading } from "../com
 import { EvidenceLink } from "../components/EvidenceLink";
 import { Field, inputClass } from "../components/Field";
 import { useSession } from "../app/session";
+import { useChanges } from "../lib/useSync";
 import { api, type ResumePacket } from "../lib/api";
 import { mutationError } from "../lib/mutationError";
 import { formFromProject, projectPatch, type ProjectForm } from "../lib/projectEdit";
@@ -206,6 +207,7 @@ export function ProjectsScreen() {
     api.listProjects().then((p) => (setProjects((p.items ?? []).filter((x) => !x.archived)), setError(false)), () => setError(true));
   }, []);
   useEffect(load, [load]);
+  useChanges(["project"], load);
 
   if (open) return <Detail id={open} onBack={() => setOpen(null)} />;
   if (error) return <Notice tone="bad" live action={<Button onClick={load}>Try again</Button>}>Projects could not be loaded.</Notice>;

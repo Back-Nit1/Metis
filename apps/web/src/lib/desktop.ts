@@ -56,6 +56,26 @@ export function desktopAuthFor(url: string): Record<string, string> {
   }
 }
 
+/** The loopback bearer, for handing to the sync worker by postMessage only. */
+export function desktopBearer(): string | null {
+  return connection?.bearer ?? null;
+}
+
+/**
+ * Calls an optional desktop command. Resolves `{ ok: false }` in the browser or
+ * when the shell does not implement it, so callers can feature-detect.
+ */
+export async function desktopCommand<T>(command: string, args?: Record<string, unknown>): Promise<{ ok: true; value: T } | { ok: false }> {
+  if (!isDesktop()) return { ok: false };
+  try {
+    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a?: unknown) => Promise<unknown> } })
+      .__TAURI_INTERNALS__.invoke;
+    return { ok: true, value: (await invoke(command, args)) as T };
+  } catch {
+    return { ok: false };
+  }
+}
+
 export function parseConnection(raw: unknown): Connection | null {
   if (typeof raw !== "object" || raw === null) return null;
   const { apiBaseUrl, bearer } = raw as Record<string, unknown>;

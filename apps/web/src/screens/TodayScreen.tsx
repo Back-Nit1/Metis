@@ -13,6 +13,7 @@ import { Button } from "../components/Button";
 import { Empty, Loading, Notice, PageHeader, SectionHeading } from "../components/Card";
 import { Icon } from "../components/Icon";
 import { useSession } from "../app/session";
+import { useChanges } from "../lib/useSync";
 import { api } from "../lib/api";
 import { dateLabel } from "../lib/format";
 import { AvailabilityPanel } from "../components/AvailabilityPanel";
@@ -41,6 +42,7 @@ export function TodayScreen({ onOpenCapture }: { onOpenCapture: () => void }) {
   }, []);
 
   useEffect(() => void load(), [load]);
+  useChanges(["task", "event", "plan", "reminder"], () => void load());
 
   const move = async (taskId: string, revision: number, state: TaskState, done: string) => {
     setBusyTask(taskId);

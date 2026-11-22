@@ -11,7 +11,14 @@ import {
   type AttachCaptureProjectRequest,
   type AvailabilityBlock,
   type CaptureDetail,
+  type ChangesResponse,
   type ChooseTargetRequest,
+  type Connector,
+  type ConnectorPage,
+  type CreateConnectorRequest,
+  type DeadLetterPage,
+  type QueueStats,
+  type UpdateConnectorRequest,
   type CompleteCaptureRequest,
   type CompleteCaptureResponse,
   type CreateCaptureRequest,
@@ -53,7 +60,7 @@ import {
   type UploadInstructions,
   type UsageResponse,
 } from "../contracts/metis";
-import { desktopAuthFor, desktopBase, isDesktop } from "./desktop";
+import { desktopAuthFor, desktopBase, desktopBearer, isDesktop } from "./desktop";
 
 export const API_BASE: string =
   (import.meta.env?.VITE_METIS_API as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000";
@@ -118,8 +125,25 @@ export function newCorrelationId(): string {
 
 /** A bearer token when a real session exists; local fixture mode sends none. */
 let authToken: string | null = null;
+const tokenListeners = new Set<() => void>();
 export function setAuthToken(token: string | null): void {
   authToken = token;
+  tokenListeners.forEach((l) => l());
+}
+export const subscribeAuthToken = (l: () => void) => (tokenListeners.add(l), () => void tokenListeners.delete(l));
+
+/**
+ * What the sync worker needs to reach the change feed: an absolute API base
+ * and the bearer (null for local fixture mode or a same-origin cookie session).
+ * Null when the desktop runtime is not connected.
+ */
+export function syncCredentials(): { baseUrl: string; token: string | null } | null {
+  if (isDesktop()) {
+    const base = desktopBase();
+    return base ? { baseUrl: base, token: desktopBearer() } : null;
+  }
+  const page = globalThis.location?.href ?? "http://localhost/";
+  return { baseUrl: new URL(API_BASE || "/", page).href.replace(/\/$/, ""), token: authToken };
 }
 
 /** Called when a signed-in request is refused as unauthenticated (expired or revoked session). */
@@ -332,6 +356,26 @@ export const api = {
   resumeProject: (projectId: string, minutes: number) =>
     request<ResumePacket>(`/v1/projects/${projectId}/resume`, { method: "POST", body: { minutes } }),
   search: (body: SearchRequest) => request<SearchResponse>("/v1/search", { method: "POST", body }),
+
+  // ----- sources, queue and change feed -------------------------------- //
+  listConnectors: (cursor?: string) =>
+    request<ConnectorPage>(`/v1/connectors${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
+  /** The server enqueues a full sync; the connector is not indexed yet when this returns. */
+  createConnector: (body: CreateConnectorRequest, idempotencyKey: string) =>
+    request<Connector>("/v1/connectors", { method: "POST", body, idempotencyKey }),
+  patchConnector: (connectorId: string, body: UpdateConnectorRequest) =>
+    request<Connector>(`/v1/connectors/${connectorId}`, { method: "PATCH", body }),
+  /** 204: the connector is gone now; its indexed files are purged by a background job. */
+  deleteConnector: (connectorId: string) => request<void>(`/v1/connectors/${connectorId}`, { method: "DELETE" }),
+  syncConnector: (connectorId: string, idempotencyKey: string) =>
+    request<JobAccepted>(`/v1/connectors/${connectorId}/sync`, { method: "POST", idempotencyKey }),
+  queue: () => request<QueueStats>("/v1/queue"),
+  deadLetters: () => request<DeadLetterPage>("/v1/queue/dead-letters"),
+  retryDeadLetter: (eventId: string) =>
+    request<Record<string, never>>(`/v1/queue/dead-letters/${eventId}/retry`, { method: "POST" }),
+  /** The sync worker polls this itself; exposed here for one-off reads. */
+  changes: (after: number, wait = 0, signal?: AbortSignal) =>
+    request<ChangesResponse>(`/v1/changes?after=${after}&wait=${wait}`, { signal }),
 
   // ----- plans and availability ----------------------------------------- //
   /** Generation is asynchronous; a repeat with the same key replays the first answer. */

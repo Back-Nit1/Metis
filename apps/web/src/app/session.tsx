@@ -8,6 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { HealthResponse, Notification, Preferences } from "../contracts/metis";
 import { api } from "../lib/api";
+import { useChanges } from "../lib/useSync";
 
 export type Limits = {
   max_audio_seconds: number;
@@ -101,16 +102,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await refreshNotifications();
     };
     void load();
-    // Only poll while the tab is actually being looked at: a backgrounded PWA
-    // polling every 15 seconds is pure waste on a phone.
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshNotifications();
-    }, 15_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
     };
   }, [refreshNotifications, refreshPreferences]);
+
+  // The sync worker says when the feed changed; one initial load above, no poll.
+  useChanges(["notification"], () => void refreshNotifications());
+  useChanges(["preferences"], () => void refreshPreferences());
 
   useEffect(() => {
     const up = () => setOnline(true);

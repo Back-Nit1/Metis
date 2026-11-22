@@ -103,6 +103,12 @@ unit metis-worker "$APP/.venv/bin/python -m metis_pipeline.local_worker"
 unit metis-speech "$APP/.venv/bin/python -m metis_speech.server --port 8787"
 unit metis-web "/usr/bin/python3 -m http.server 5173 --bind 127.0.0.1 --directory $APP/apps/web/dist"
 
+# Keep the API's global concurrency ceiling separate from its per-client
+# sliding-window request limit. A drop-in avoids shell interpolation in
+# ExecStart and can be rolled out without replacing the rest of the unit.
+install -D -m 0644 "$APP/ops/gcp/systemd/metis-api-limits.conf" \
+  /etc/systemd/system/metis-api.service.d/limits.conf
+
 # Public edge: TLS + health-checked load balancing across the configured API
 # endpoints. A single-VM install defaults to the loopback API. Additional
 # private API nodes can be supplied as comma- or space-separated host:port

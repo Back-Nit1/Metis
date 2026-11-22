@@ -4,6 +4,10 @@ Metis currently runs as a single `e2-medium` Compute Engine VM in
 `us-central1-a`. Caddy is the public TLS edge; the API, worker, speech service,
 and static server bind to loopback. Caddy can balance across additional private
 API nodes through `METIS_API_UPSTREAMS`, but one VM is not high availability.
+The API process admits at most 200 concurrent connections or tasks and keeps a
+200-connection socket backlog. This is independent of the exact rolling limit
+of 100 requests per client per 60 seconds; overload receives HTTP 503 rather
+than growing the API queue without bound.
 
 ## Deploy
 

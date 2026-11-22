@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import threading
+import time
 from array import array
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -49,6 +50,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 #: bm25 column weights (chunk_id, user_id, title, uri, content): a name hit
 #: outranks a passing mention in the body.
 _BM25 = "bm25(chunks_fts, 0, 0, 4.0, 2.0, 1.0)"
+
+
+def run_schema(conn: sqlite3.Connection, script: str, *, attempts: int = 20) -> None:
+    """Apply a schema script, retrying briefly while another worker process
+    holds the write lock: ``executescript`` (WAL switch, CREATE) can fail with
+    "database is locked" even under a busy timeout when several open at once."""
+    for attempt in range(attempts):
+        try:
+            conn.executescript(script)
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc) or attempt == attempts - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 @dataclass(frozen=True)
@@ -88,7 +103,7 @@ class CorpusStore:
         self._conn = conn
         self._lock = lock
         with self._lock:
-            self._conn.executescript(SCHEMA)
+            run_schema(self._conn, SCHEMA)
 
     # -- writes -------------------------------------------------------- #
 

@@ -32,17 +32,22 @@ PROJECT=metis-dev-856337 ops/gcp/configure-schedule.sh
 ```
 
 The idempotent script creates an OAuth-authenticated Cloud Scheduler service
-account with a custom role limited to `compute.instances.get`, `.start`, and
-`.stop`, then applies these `America/New_York` schedules:
+account with a custom role limited to VM get/start/stop and Monitoring alert
+policy get/update, then applies these `America/New_York` schedules:
 
 | Job | Schedule | Effect |
 | --- | --- | --- |
 | `metis-stop-morning` | `0 4 * * *` | stop at 04:00 every day |
 | `metis-start-day` | `30 11 * * *` | start at 11:30 every day |
+| `metis-mute-planned-downtime` | `55 3 * * *` | mute only the uptime-failure alert before the planned stop |
+| `metis-unmute-after-start` | `35 11 * * *` | re-enable the uptime-failure alert after startup |
 
 The VM therefore remains off from 04:00 through 11:30 every day, including
 Sunday. `automaticRestart` is disabled. Compute stop uses a clean guest OS
 shutdown, and the VM has an additional two-minute graceful-shutdown window.
+The uptime metric still records planned downtime, but the unavailable alert is
+muted during that window so it reports operating-hour failures instead of the
+cost-control schedule.
 
 ## Monitoring
 

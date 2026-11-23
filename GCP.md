@@ -18,14 +18,14 @@ details live in `ops/gcp/README.md`; this is the operator's guide.
 
 ## Console links
 
-| What | Link |
-| --- | --- |
-| Dashboard | https://console.cloud.google.com/monitoring/dashboards?project=metis-dev-856337 |
-| Uptime checks | https://console.cloud.google.com/monitoring/uptime?project=metis-dev-856337 |
-| Alert policies | https://console.cloud.google.com/monitoring/alerting/policies?project=metis-dev-856337 |
-| Logs Explorer | https://console.cloud.google.com/logs/query?project=metis-dev-856337 |
-| VM details | https://console.cloud.google.com/compute/instancesDetail/zones/us-central1-a/instances/metis?project=metis-dev-856337 |
-| Cloud Scheduler | https://console.cloud.google.com/cloudscheduler?project=metis-dev-856337 |
+| What            | Link                                                                                                                  |
+| --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Dashboard       | https://console.cloud.google.com/monitoring/dashboards?project=metis-dev-856337                                       |
+| Uptime checks   | https://console.cloud.google.com/monitoring/uptime?project=metis-dev-856337                                           |
+| Alert policies  | https://console.cloud.google.com/monitoring/alerting/policies?project=metis-dev-856337                                |
+| Logs Explorer   | https://console.cloud.google.com/logs/query?project=metis-dev-856337                                                  |
+| VM details      | https://console.cloud.google.com/compute/instancesDetail/zones/us-central1-a/instances/metis?project=metis-dev-856337 |
+| Cloud Scheduler | https://console.cloud.google.com/cloudscheduler?project=metis-dev-856337                                              |
 
 ## Common commands
 
@@ -53,11 +53,11 @@ All scripts are idempotent: safe to re-run.
 
 Times are `America/New_York`:
 
-| Job | Schedule | Effect |
-| --- | --- | --- |
-| `metis-stop-morning` | 04:00 Mon–Sat | stop |
-| `metis-stop-sunday` | 00:00 Sun | stop |
-| `metis-start-day` | 11:30 Mon–Sat | start |
+| Job                  | Schedule      | Effect |
+| -------------------- | ------------- | ------ |
+| `metis-stop-morning` | 04:00 Mon–Sat | stop   |
+| `metis-stop-sunday`  | 00:00 Sun     | stop   |
+| `metis-start-day`    | 11:30 Mon–Sat | start  |
 
 The VM is **off all Sunday and 04:00–11:30 every other day**. Uptime failures
 and empty charts in those windows are expected, not incidents.
@@ -115,14 +115,14 @@ e2-medium has burstable shared CPU. Transcription spikes it, which is fine.
 
 ### Reading charts together
 
-| You see | Probably |
-| --- | --- |
-| Uptime fails, memory cliff just before | OOM kill; whisper + 4 GB too tight |
-| Uptime fails, errors spike | Code crash; read the traceback |
-| Uptime fails, all charts go flat or empty | VM stopped (schedule, preemption, manual) |
-| Uptime fine, errors climbing | Partial breakage; health passes but features fail |
-| CPU pinned, memory fine | Runaway job or speech backlog |
-| Disk climbing toward full | Logs or uploads filling up; clean up before it crashes |
+| You see                                   | Probably                                               |
+| ----------------------------------------- | ------------------------------------------------------ |
+| Uptime fails, memory cliff just before    | OOM kill; whisper + 4 GB too tight                     |
+| Uptime fails, errors spike                | Code crash; read the traceback                         |
+| Uptime fails, all charts go flat or empty | VM stopped (schedule, preemption, manual)              |
+| Uptime fine, errors climbing              | Partial breakage; health passes but features fail      |
+| CPU pinned, memory fine                   | Runaway job or speech backlog                          |
+| Disk climbing toward full                 | Logs or uploads filling up; clean up before it crashes |
 
 ## Alerts and notifications
 
@@ -264,3 +264,19 @@ Worth adding, in order of value:
    while health looks fine.
 3. **Model spend vs budget.** Set a billing budget alert in GCP/AWS so Bedrock
    cost can't run away quietly.
+
+Since it’s the **built app** , I’d narrow it down by one key detail: **does the blank window eventually show the UI, or stay blank forever?**
+
+If it **eventually appears** , the strongest suspect is frontend startup code waiting for something before it renders: a Rust `invoke`, database initialization, authentication check, or network request. The window exists, but your app hasn’t drawn its first screen yet.
+
+If it **stays blank** , I’d check these first:
+
+| Possible cause                           | What it means                                                                                                                                                                                                                                                                    |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Missing or mislocated frontend files** | `frontendDist`points to the wrong build folder, or`index.html`cannot load its JavaScript files. Tauri’s built app needs those frontend assets.[v2.tauri.app](https://v2.tauri.app/develop/?utm_source=chatgpt.com)                                                               |
+| **JavaScript crashes on launch**         | The page loads, but an error stops your UI from rendering.                                                                                                                                                                                                                       |
+| **Development URL left in the app**      | Frontend code tries to reach`localhost`or another service that only exists when you run`tauri dev`.                                                                                                                                                                              |
+| **Frontend requires a server**           | If you’re using a framework mode that expects server rendering, the packaged Tauri app won’t provide that server automatically. Tauri’s frontend guidance calls for static or client rendered output.[v2.tauri.app](https://v2.tauri.app/start/frontend/?utm_source=chatgpt.com) |
+| **Built app configuration differs**      | A production environment variable, API URL, or asset path differs from development and breaks startup.                                                                                                                                                                           |
+
+**The fastest way to tell:** make a **debug build** of the packaged app and open its web inspector. Tauri enables the inspector in debug builds; its Console and Network tabs will show whether a file failed to load, JavaScript threw an error, or a request is hanging. [tauri.app](https://tauri.app/develop/debug/?utm_source=chatgpt.com)

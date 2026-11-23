@@ -107,7 +107,10 @@ HOST="$HOST" METIS_API_UPSTREAMS="$METIS_API_UPSTREAMS" \
 stage="$(mktemp -d)"; trap 'rm -rf "$stage"' EXIT
 git archive HEAD | tar -x -C "$stage"
 (cd "$stage" && pnpm install --frozen-lockfile --filter @metis/web... && pnpm --filter @metis/web build)
-tar -czf "$stage.tar.gz" -C "$stage" --exclude node_modules --exclude infra --exclude 'apps/desktop' .
+# macOS otherwise serializes com.apple.* metadata into pax headers that GNU
+# tar on the VM cannot interpret, flooding deploy output with harmless noise.
+COPYFILE_DISABLE=1 tar -czf "$stage.tar.gz" -C "$stage" \
+  --exclude node_modules --exclude infra --exclude 'apps/desktop' .
 
 ssh_ready() { g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command true 2>/dev/null; }
 for _ in $(seq 20); do ssh_ready && break; sleep 6; done

@@ -107,6 +107,10 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 EOF
+  # Unit files contain configuration paths, not secret values. Keep their mode
+  # consistent even when a previous install created one under a restrictive
+  # umask; systemd otherwise emits a warning on every daemon reload.
+  chmod 0644 "/etc/systemd/system/$1.service"
 }
 unit metis-api "$APP/.venv/bin/uvicorn metis_api.main:app --host 127.0.0.1 --port 8000"
 unit metis-worker "$APP/.venv/bin/python -m metis_pipeline.local_worker"

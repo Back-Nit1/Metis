@@ -16,6 +16,16 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends libsndfile1 ca-certificates curl caddy
 
+# Google Compute Engine's rsyslog rule forwards daemon and kernel messages to
+# /dev/console. Ubuntu runs rsyslog as the unprivileged `syslog` user, while
+# /dev/console is writable only by root:tty. Without this supplementary group,
+# rsyslog retries the failed output every 30 seconds and floods the journal.
+# Preserve serial-console diagnostics instead of disabling the vendor rule.
+if id syslog >/dev/null 2>&1 && getent group tty >/dev/null 2>&1; then
+  usermod -aG tty syslog
+  systemctl restart rsyslog
+fi
+
 id metis >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin metis
 mkdir -p "$DATA" "$MODELS"
 

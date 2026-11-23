@@ -19,7 +19,9 @@ PROJECT=metis-dev-856337 ops/gcp/deploy.sh
 
 The deploy installs the Ops Agent, validates Caddy before reload, restarts the
 four Metis systemd services, and verifies `/v1/health`. The VM identity has only
-`roles/logging.logWriter` and `roles/monitoring.metricWriter`.
+`roles/logging.logWriter` and `roles/monitoring.metricWriter`. VM deletion
+protection is enabled and its boot disk does not auto-delete with the instance;
+these guard against accidental deletion but are not substitutes for backups.
 
 The API edge emits structured Caddy access logs. The queue observer reads
 SQLite in read-only mode once per minute and emits only aggregate outbox counts

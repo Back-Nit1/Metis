@@ -83,6 +83,15 @@ ensure compute instances describe "$VM" --zone "$ZONE" -- \
   --graceful-shutdown --graceful-shutdown-max-duration=2m \
   --shielded-secure-boot --metadata enable-oslogin=TRUE
 
+# The SQLite databases and local object store live on the boot disk. Protect
+# both the instance and disk from being erased by an accidental VM deletion;
+# an explicit two-step teardown is safer than coupling data loss to one click.
+g compute instances update "$VM" --zone "$ZONE" --deletion-protection >/dev/null
+boot_disk="$(g compute instances describe "$VM" --zone "$ZONE" \
+  --format='value(disks[0].source.basename())')"
+g compute instances set-disk-auto-delete "$VM" --zone "$ZONE" \
+  --disk "$boot_disk" --no-auto-delete >/dev/null
+
 attached_sa="$(g compute instances describe "$VM" --zone "$ZONE" \
   --format='value(serviceAccounts[0].email)')"
 if [ "$attached_sa" != "$OBS_SA" ]; then

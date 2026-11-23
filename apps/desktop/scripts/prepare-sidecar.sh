@@ -1,15 +1,16 @@
 #!/bin/sh
 # Make the workspace buildable and testable:
-#  - src-tauri/binaries/metis-backend-<triple>: the REAL packaged backend that
-#    Tauri's externalBin requires. Built once (slow, needs uv + network for
-#    PyInstaller) and reused; delete it or run python-backend/build.sh to rebuild.
+#  - src-tauri/binaries/metis-backend/: the REAL packaged backend, bundled as a
+#    Tauri resource. Rebuilt (slow, needs uv + network for PyInstaller) when it
+#    is missing or any Python source is newer, so an app never ships stale code.
 #  - target/debug/metis-health-sidecar: test-only fake backend (never bundled).
 set -eu
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
-triple=$(rustc -vV | sed -n 's/^host: //p')
-ext=""; case "$triple" in *windows*) ext=".exe";; esac
-if [ ! -f "src-tauri/binaries/metis-backend-$triple$ext" ]; then
+case "$(rustc -vV | sed -n 's/^host: //p')" in *windows*) ext=".exe";; *) ext="";; esac
+exe="src-tauri/binaries/metis-backend/metis-backend$ext"
+if [ ! -f "$exe" ] || [ -n "$(find ../../services ../../packages/contracts/src python-backend \
+  -name '*.py' -not -path '*/.build/*' -newer "$exe" -print -quit)" ]; then
   sh python-backend/build.sh
 fi
 cargo build -p metis-health-sidecar

@@ -21,7 +21,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 /// Event the HUD listens to; payload is a sanitized [`Snapshot`].
 pub const STATE_EVENT: &str = "capture:state";
 
-/// Name of the packaged backend (matches `bundle.externalBin`).
+/// Name of the packaged backend (under the `backend/` bundle resource).
 const BACKEND: &str = "metis-backend";
 
 #[derive(Default)]
@@ -217,11 +217,9 @@ fn error_script(msg: &str) -> String {
     )
 }
 
-fn start_stack(data_dir: PathBuf) -> Result<Stack, String> {
-    let backend = std::env::current_exe()
-        .map_err(|e| e.to_string())?
-        .parent()
-        .ok_or("no executable directory")?
+fn start_stack(resources: PathBuf, data_dir: PathBuf) -> Result<Stack, String> {
+    let backend = resources
+        .join("backend")
         .join(format!("{BACKEND}{}", std::env::consts::EXE_SUFFIX));
     let mut cfg = Config::production(backend, &data_dir);
     cfg.local_ai = LocalAi::from_env()?;
@@ -285,7 +283,8 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<AppState>();
             let data_dir = app.path().app_data_dir().map_err(|e| e.to_string());
-            let started = data_dir.clone().and_then(start_stack);
+            let resources = app.path().resource_dir().map_err(|e| e.to_string());
+            let started = resources.and_then(|r| data_dir.clone().and_then(|d| start_stack(r, d)));
             match started {
                 Ok(stack) => *state.stack.lock().unwrap() = Some(stack),
                 Err(e) => *state.startup_error.lock().unwrap() = Some(e),

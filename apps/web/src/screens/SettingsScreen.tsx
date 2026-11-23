@@ -6,8 +6,8 @@
  * internals live in the diagnostics block at the bottom, not in the ordinary
  * controls.
  */
-import { useEffect, useState } from "react";
-import { JobState, type ExportStatusResponse, type TimeWindow, type UsageResponse } from "../contracts/metis";
+import { useEffect, useRef, useState } from "react";
+import { JobState, type ExportStatusResponse, type Preferences, type TimeWindow, type UsageResponse } from "../contracts/metis";
 import { Button } from "../components/Button";
 import { Card, Notice, PageHeader, SectionHeading } from "../components/Card";
 import { Field, inputClass } from "../components/Field";
@@ -33,6 +33,9 @@ export function SettingsScreen() {
   const [usage, setUsage] = useState<UsageResponse | null>(null);
   const auth = useAuth();
   const [draft, setDraft] = useState<PrefsDraft | null>(null);
+  // The version the draft was edited from: a save against it gets a 409 if another device moved on.
+  const [base, setBase] = useState<Preferences | null>(null);
+  const adoptNext = useRef(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ tone: "good" | "warn"; text: string } | null>(null);
   const [confirmOut, setConfirmOut] = useState(false);
@@ -41,21 +44,29 @@ export function SettingsScreen() {
     api.usage().then(setUsage).catch(() => setUsage(null));
   }, []);
 
-  useEffect(() => setDraft(preferences ? toDraft(preferences) : null), [preferences]);
+  useEffect(() => {
+    const unsaved = base && draft && Object.keys(buildPatch(base, draft)).length > 0;
+    if (preferences && unsaved && !adoptNext.current) return; // live sync must not erase typing
+    adoptNext.current = false;
+    setBase(preferences);
+    setDraft(preferences ? toDraft(preferences) : null);
+  }, [preferences]);
 
   const save = async () => {
-    if (!preferences || !draft) return;
+    if (!base || !draft) return;
     const problem = validate(draft);
     if (problem) return setNotice({ tone: "warn", text: problem });
-    const patch = buildPatch(preferences, draft);
+    const patch = buildPatch(base, draft);
     if (Object.keys(patch).length === 0) return setNotice({ tone: "good", text: "Nothing changed." });
     setSaving(true);
     setNotice(null);
     try {
-      await api.patchPreferences({ expected_revision: preferences.revision ?? 1, ...patch });
+      await api.patchPreferences({ expected_revision: base.revision ?? 1, ...patch });
+      adoptNext.current = true;
       await session.refreshPreferences();
       setNotice({ tone: "good", text: "Saved." });
     } catch (cause) {
+      adoptNext.current = cause instanceof ApiError && cause.currentRevision !== null;
       await session.refreshPreferences();
       setNotice({
         tone: "warn",

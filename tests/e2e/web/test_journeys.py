@@ -230,6 +230,25 @@ def test_settings_save_and_stale_revision_conflict(page, stack, probe, api):
 
 
 @pytest.mark.mutating
+def test_live_sync_keeps_unsaved_settings(page, stack, probe, api):
+    enter(page, stack, "settings")
+    field = page.get_by_label("Focus tasks per day")
+    expect(field).not_to_have_value("")
+    field.fill("7")
+    prefs = api.get("/v1/preferences").json()
+    assert api.patch(
+        "/v1/preferences", data={"expected_revision": prefs["revision"], "max_focus_tasks": 2}
+    ).ok
+    page.wait_for_timeout(1500)  # let the change feed deliver the other device's edit
+    expect(field).to_have_value("7")
+    page.get_by_role("button", name="Save", exact=False).first.click()
+    expect(page.get_by_text("changed elsewhere")).to_be_visible()
+    expect(field).to_have_value("2")
+    assert api.get("/v1/preferences").json()["max_focus_tasks"] == 2
+    probe["http"].clear()  # the 409 is the expected outcome here
+
+
+@pytest.mark.mutating
 def test_export_request(page, stack, probe):
     enter(page, stack, "settings")
     page.get_by_role("button", name=re.compile("Request export|Export again")).click()
@@ -263,9 +282,6 @@ def test_offline_capture_replays_once(page, stack, probe, api):
 
 @pytest.mark.mutating
 @pytest.mark.ci_safe
-@pytest.mark.known_issue(
-    owner="B", note="NEW: Send has no in-flight guard and mints a fresh client_capture_id per click"
-)
 def test_double_click_send_makes_one_capture(page, stack, probe, api):
     marker = f"dbl-{uid()}"
     enter(page, stack, "capture")

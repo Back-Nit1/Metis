@@ -175,12 +175,13 @@ def _loop(
         if result.processed or due:
             idle_cycles = 0
             log.info(
-                "batch lane=%s processed=%d ok=%d superseded=%d retried=%d dead=%d due=%d",
+                "batch lane=%s processed=%d ok=%d superseded=%d retried=%d unhandled=%d dead=%d due=%d",
                 dispatcher.lane,
                 result.processed,
                 result.succeeded,
                 result.superseded,
                 result.retried,
+                result.unhandled,
                 result.dead_lettered,
                 due,
             )

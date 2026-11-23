@@ -81,12 +81,18 @@ def test_a_successful_handler_marks_the_event_done(store, clock, context):
     assert OutboxDispatcher(registry, context).run_once().processed == 0
 
 
-def test_an_unregistered_event_type_is_left_pending_not_lost(store, clock, context):
+def test_an_unregistered_event_type_retries_then_dead_letters_at_the_cap(store, clock, context):
     enqueue(store, clock)
-    result = OutboxDispatcher(HandlerRegistry(), context).run_once()
-    assert result.unhandled == 1 and result.dead_lettered == 0
-    clock.advance(seconds=120)
-    assert store.claim_outbox(owner="w2", limit=5, lease_seconds=60), "the event must still be retrievable"
+    dispatcher = OutboxDispatcher(HandlerRegistry(), context)
+
+    outcomes = []
+    for _ in range(3):
+        outcomes.append(dispatcher.run_once())
+        clock.advance(seconds=120)
+
+    assert sum(o.unhandled for o in outcomes) == 3
+    assert sum(o.dead_lettered for o in outcomes) == 1
+    assert [e.event_type for e in store.list_dead_letters()] == [EventType.TASK_CHANGED]
 
 
 def test_a_validation_failure_is_dead_lettered_without_retrying(store, clock, context):

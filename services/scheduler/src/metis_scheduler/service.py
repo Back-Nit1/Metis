@@ -216,6 +216,47 @@ def cancel_reminder(
     return stored
 
 
+def reconcile_reminders_for_target(
+    state: StateStore,
+    target: Any,
+    *,
+    clock: Clock,
+    correlation_id: str,
+) -> None:
+    """Re-point or cancel every active reminder after its target changes.
+
+    The entity mutation emits ``task.changed`` or ``event.changed`` in the
+    same transaction. Running this from the outbox handler closes the crash
+    window between committing the entity and reconciling its schedules. The
+    synchronous API call remains useful for immediate UI consistency; this
+    function is idempotent so the durable handler can safely run afterward.
+    """
+    state_value = getattr(getattr(target, "state", None), "value", None)
+    attendance = getattr(getattr(target, "attendance_status", None), "value", None)
+    dead = state_value in ("done", "canceled") or attendance in ("canceled", "declined")
+
+    for reminder in state.list_reminders_for_target(target.user_id, target.id):
+        if reminder.state not in REMINDER_ACTIVE_STATES:
+            continue
+        if dead:
+            cancel_reminder(
+                state,
+                reminder,
+                clock=clock,
+                correlation_id=correlation_id,
+                reason=f"the target is {state_value or attendance}",
+            )
+        elif reminder.target_revision != target.revision:
+            retarget_reminder(
+                state,
+                reminder,
+                trigger_at=reminder.trigger_at,
+                target_revision=target.revision,
+                clock=clock,
+                correlation_id=correlation_id,
+            )
+
+
 def suspend_reminder(state: StateStore, reminder: Reminder, *, reason: str, clock: Clock) -> Reminder:
     """Hold a not-yet-dispatched reminder while a disputed date is clarified."""
     if reminder.state not in REMINDER_ACTIVE_STATES:

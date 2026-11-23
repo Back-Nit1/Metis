@@ -10,12 +10,15 @@ from metis_contracts import (
     DeliveryStatus,
     ErrorCode,
     Event,
+    EventType,
     FixedClock,
     MetisError,
+    OutboxEvent,
     RegistrationStatus,
     ReminderState,
     Task,
     TaskState,
+    new_id,
     reset_settings_cache,
 )
 from metis_contracts.entities import TimeWindow
@@ -133,6 +136,27 @@ def drain(context, *, cycles=4):
     dispatcher = OutboxDispatcher(scheduler_registry, context)
     results = [dispatcher.run_once() for _ in range(cycles)]
     return results
+
+
+def append_entity_changed(store, clock, target, event_type: str) -> None:
+    kind = "task" if event_type == EventType.TASK_CHANGED else "event"
+    with store.transaction(USER) as tx:
+        stored = tx.put(kind, target, expected_revision=target.revision)
+        tx.append_outbox(
+            OutboxEvent(
+                id=new_id("obx"),
+                user_id=USER,
+                created_at=clock.now(),
+                updated_at=clock.now(),
+                event_type=event_type,
+                target_id=stored.id,
+                target_revision=stored.revision,
+                correlation_id="corr_changed",
+                idempotency_key=f"{event_type}:{stored.id}:{stored.revision}",
+                payload={f"{kind}_id": stored.id},
+                available_at=clock.now(),
+            )
+        )
 
 
 # --- honest scheduling states ---------------------------------------------- #
@@ -281,6 +305,43 @@ def test_a_canceled_event_suppresses_its_reminder(store, clock, context):
     current = store.get(USER, "reminder", reminder.id)
     decision = evaluate_due(store, current, occurrence=current.occurrence_key, clock=clock)
     assert decision.deliver is False and "canceled" in decision.reason
+
+
+def test_task_changed_outbox_durably_cancels_reminders(store, clock, context):
+    task = make_task(store, clock)
+    reminder = add_reminder(store, clock, task)
+    drain(context)
+
+    append_entity_changed(
+        store,
+        clock,
+        task.model_copy(update={"state": TaskState.DONE, "completed_at": clock.now()}),
+        EventType.TASK_CHANGED,
+    )
+    drain(context)
+
+    after = store.get(USER, "reminder", reminder.id)
+    assert after.state is ReminderState.CANCELED
+    assert after.suspended_reason == "the target is done"
+
+
+def test_event_changed_outbox_retargets_reminders(store, clock, context):
+    event = make_event(store, clock)
+    reminder = add_reminder(store, clock, event, kind="event")
+    drain(context)
+
+    append_entity_changed(
+        store,
+        clock,
+        event.model_copy(update={"title": "Updated Bloomberg event"}),
+        EventType.EVENT_CHANGED,
+    )
+    OutboxDispatcher(scheduler_registry, context).run_once()
+
+    updated_event = store.get(USER, "event", event.id)
+    after = store.get(USER, "reminder", reminder.id)
+    assert after.state is ReminderState.PENDING_SCHEDULE
+    assert after.target_revision == updated_event.revision
 
 
 def _register(store, event):

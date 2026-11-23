@@ -253,7 +253,30 @@ class OutboxDispatcher:
 
         handler = self._registry.get(envelope.event_type)
         if handler is None:
-            log.warning("no handler registered for %s; left pending", envelope.event_type)
+            result.unhandled += 1
+            max_attempts = settings().limits.job_max_attempts
+            if record.attempts >= max_attempts:
+                log.error(
+                    "event %s dead-lettered after %d attempts: no handler registered for %s",
+                    envelope.event_id,
+                    record.attempts,
+                    envelope.event_type,
+                )
+                state.complete_outbox(
+                    envelope.event_id,
+                    user_id=envelope.user_id,
+                    state="dead_letter",
+                    failure=FailureCategory.INTERNAL.value,
+                    error=f"no handler registered for {envelope.event_type}",
+                )
+                result.dead_lettered += 1
+                return
+            log.warning(
+                "no handler registered for %s; retry %d/%d in 60s",
+                envelope.event_type,
+                record.attempts,
+                max_attempts,
+            )
             state.complete_outbox(
                 envelope.event_id,
                 user_id=envelope.user_id,
@@ -261,7 +284,6 @@ class OutboxDispatcher:
                 error="no handler registered",
                 retry_in_seconds=60,
             )
-            result.unhandled += 1
             return
 
         try:

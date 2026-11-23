@@ -8,6 +8,7 @@
  */
 import { useEffect, useState } from "react";
 import { isDesktop } from "./desktop";
+import { parseSnapshot } from "./hud";
 
 export type RecordingGate = { allowed: boolean; reason: string | null };
 
@@ -41,6 +42,26 @@ export async function readGate(invoke: Call = tauri): Promise<RecordingGate> {
 
 /** Asks Rust to run the microphone permission prompt (main window only). */
 export const prepareMic = (invoke: Call = tauri): Promise<unknown> => invoke("capture_prepare_mic").catch(() => undefined);
+
+/** Whether the hotkey microphone check has passed. Always true in browser mode. */
+export function useMicReady(pollMs = 3000): boolean {
+  const [ready, setReady] = useState(true);
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let live = true;
+    const tick = () =>
+      void tauri("capture_state")
+        .then((raw) => live && setReady(parseSnapshot(raw)?.micReady ?? false))
+        .catch(() => undefined);
+    tick();
+    const id = setInterval(tick, pollMs);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+  }, [pollMs]);
+  return ready;
+}
 
 export function useRecordingGate(pollMs = 3000): RecordingGate {
   const [gate, setGate] = useState<RecordingGate>(() => (isDesktop() ? { allowed: false, reason: null } : { allowed: true, reason: null }));

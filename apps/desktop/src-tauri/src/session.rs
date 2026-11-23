@@ -761,9 +761,16 @@ impl Controller {
             g.1 = s.iter().fold(g.1, |m, v| m.max(v.abs()));
         }))?;
         // Wait for the OS prompt to be answered and ~0.5 s of audio, up to 30 s.
+        // Bluetooth inputs send zeros while the route switches, so silence only
+        // counts as a failure after 3 s of delivered audio.
         let need = fmt.rate as usize * fmt.channels as usize / 2;
+        let silence_limit = need * 6;
         let end = Instant::now() + Duration::from_secs(30);
-        while Instant::now() < end && seen.lock().unwrap().0 < need {
+        while Instant::now() < end {
+            let (n, peak) = *seen.lock().unwrap();
+            if (n >= need && peak > 0.0) || n >= silence_limit {
+                break;
+            }
             thread::sleep(Duration::from_millis(50));
         }
         self.src.stop();
@@ -1170,6 +1177,49 @@ mod tests {
         assert!(e.message.contains("model missing"));
         r.c.handle(Msg::Up, 10);
         assert_eq!(r.backend.creates.load(Ordering::SeqCst), 0);
+    }
+
+    /// Bluetooth inputs send zeros while the route switches, then real audio.
+    struct WakesLate;
+    impl AudioSource for WakesLate {
+        fn format(&mut self) -> Result<Format, String> {
+            Silent.format()
+        }
+        fn start(&mut self, mut sink: Sink) -> Result<(), String> {
+            sink(&vec![0.0; 8_000]);
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(100));
+                sink(&[0.2; 160]);
+            });
+            Ok(())
+        }
+        fn stop(&mut self) {}
+    }
+
+    struct AllZeros;
+    impl AudioSource for AllZeros {
+        fn format(&mut self) -> Result<Format, String> {
+            Silent.format()
+        }
+        fn start(&mut self, mut sink: Sink) -> Result<(), String> {
+            sink(&vec![0.0; 16_000 * 3]);
+            Ok(())
+        }
+        fn stop(&mut self) {}
+    }
+
+    #[test]
+    fn mic_probe_waits_past_leading_bluetooth_silence() {
+        let mut r = rig();
+        r.c.src = Box::new(WakesLate);
+        assert_eq!(r.c.probe_mic(), Ok(()));
+    }
+
+    #[test]
+    fn mic_probe_still_rejects_sustained_silence() {
+        let mut r = rig();
+        r.c.src = Box::new(AllZeros);
+        assert!(r.c.probe_mic().unwrap_err().contains("only silence"));
     }
 
     #[test]

@@ -25,7 +25,8 @@
         "done",
         "failed",
         "dead_letter",
-        "superseded"
+        "superseded",
+        "expired"
       ],
       "title": "OutboxState",
       "type": "string"

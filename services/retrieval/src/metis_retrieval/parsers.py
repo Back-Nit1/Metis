@@ -5,7 +5,8 @@
 * PDF: the pypdf text layer only. No text layer -> ``UNSUPPORTED_MEDIA``
   (honest: not OCR'd). Corrupt or encrypted -> ``VALIDATION_FAILED``.
 
-Both error codes are non-retryable, so the outbox dead-letters them at once.
+Unsupported media is skipped with a visible reason. Only malformed input
+(``VALIDATION_FAILED``) dead-letters.
 """
 
 from __future__ import annotations
@@ -23,6 +24,17 @@ def parse_file(path: str | Path) -> str:
     if p.suffix.lower() == ".pdf":
         return _parse_pdf(p)
     return parse_text(p.read_bytes(), name=p.name)
+
+
+def is_indexable(path: Path) -> bool:
+    """False for binaries (images, databases, archives) we cannot read yet."""
+    if path.suffix.lower() == ".pdf":
+        return True
+    try:
+        with path.open("rb") as fh:
+            return b"\x00" not in fh.read(SNIFF_BYTES)
+    except OSError:
+        return True  # let ingestion report the real error
 
 
 def parse_text(data: bytes, *, name: str = "file") -> str:

@@ -174,6 +174,8 @@ def handle_source_ingest(envelope: EventEnvelope, context: DispatchContext) -> N
             failure=classify(exc),
             error_message=exc.message[:1000],
         )
+        if exc.code is ErrorCode.UNSUPPORTED_MEDIA:
+            return  # readable later, not broken: a visible skip, not a dead letter
         raise
 
     chunks = chunk_text(text, title=source.origin.title, path=source.origin.uri)

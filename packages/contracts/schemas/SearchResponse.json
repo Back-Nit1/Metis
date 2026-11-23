@@ -258,6 +258,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "decomposition": {
+      "default": "none",
+      "enum": [
+        "none",
+        "parallel",
+        "sequential"
+      ],
+      "title": "Decomposition",
+      "type": "string"
+    },
     "degraded_reason": {
       "anyOf": [
         {
@@ -290,6 +300,15 @@
         "$ref": "#/$defs/SearchResult"
       },
       "title": "Results",
+      "type": "array"
+    },
+    "sub_queries": {
+      "items": {
+        "maxLength": 1000,
+        "type": "string"
+      },
+      "maxItems": 5,
+      "title": "Sub Queries",
       "type": "array"
     }
   },

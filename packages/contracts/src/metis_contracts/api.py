@@ -412,6 +412,8 @@ class SearchResponse(StrictModel):
     index_available: bool = True
     index_stale: bool = False
     degraded_reason: Annotated[str | None, Field(default=None, max_length=300)] = None
+    decomposition: Literal["none", "parallel", "sequential"] = "none"
+    sub_queries: list[Annotated[str, Field(max_length=1000)]] = Field(default_factory=list, max_length=5)
 
 
 class ProjectDetail(StrictModel):

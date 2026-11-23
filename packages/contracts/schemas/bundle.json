@@ -8938,7 +8938,8 @@
             "done",
             "failed",
             "dead_letter",
-            "superseded"
+            "superseded",
+            "expired"
           ],
           "title": "OutboxState",
           "type": "string"
@@ -15607,6 +15608,16 @@
       "$id": "https://metis.local/schemas/v1/SearchResponse.json",
       "additionalProperties": false,
       "properties": {
+        "decomposition": {
+          "default": "none",
+          "enum": [
+            "none",
+            "parallel",
+            "sequential"
+          ],
+          "title": "Decomposition",
+          "type": "string"
+        },
         "degraded_reason": {
           "anyOf": [
             {
@@ -15639,6 +15650,15 @@
             "$ref": "#/$defs/SearchResult"
           },
           "title": "Results",
+          "type": "array"
+        },
+        "sub_queries": {
+          "items": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "maxItems": 5,
+          "title": "Sub Queries",
           "type": "array"
         }
       },

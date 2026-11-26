@@ -43,8 +43,7 @@ import {
 import { bytes, clock } from "../lib/format";
 import { Outbox, newClientCaptureId, type OutboxEntry } from "../lib/outbox";
 import { FLOW_STATUS, type FlowState } from "../lib/status";
-import { prepareMic, useRecordingGate } from "../lib/recordingGate";
-import { isDesktop } from "../lib/desktop";
+import { prepareMic, useMicReady, useRecordingGate } from "../lib/recordingGate";
 import { takePendingReview, usePendingReview } from "../lib/openReview";
 import { useRecorder, type Recording } from "../lib/useRecorder";
 
@@ -74,6 +73,7 @@ export function CaptureScreen() {
   const deps = useRef(defaultDeps());
   const recorder = useRecorder(limits.max_audio_seconds);
   const gate = useRecordingGate();
+  const micReady = useMicReady();
 
   useEffect(() => {
     deps.current = { ...deps.current, timezone };
@@ -452,14 +452,14 @@ export function CaptureScreen() {
           {!gate.allowed && (
             <Notice tone="info" live>
               {gate.reason ?? "Checking the local services…"}
-              {isDesktop() && (
-                <>
-                  {" "}
-                  <button type="button" className="underline" onClick={() => void prepareMic()}>
-                    Enable microphone for the hotkey
-                  </button>
-                </>
-              )}
+            </Notice>
+          )}
+          {!micReady && (
+            <Notice tone="info">
+              The hotkey microphone is not confirmed yet.{" "}
+              <button type="button" className="underline" onClick={() => void prepareMic()}>
+                Enable microphone for the hotkey
+              </button>
             </Notice>
           )}
           {recorder.state === "denied" && (

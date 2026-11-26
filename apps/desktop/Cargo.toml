@@ -2,7 +2,16 @@
 resolver = "2"
 members = ["src-tauri", "sidecar-health"]
 
+# Full debuginfo + incremental made target/debug ~5 GB per checkout.
+# Line tables keep backtraces readable; dependencies need none.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 opt-level = "s"
 lto = true
 strip = true
+codegen-units = 1

@@ -26,6 +26,16 @@ const MAX_LINE: u64 = 8192;
 const MAX_EVENTS: usize = 200;
 const LOG_CAP_BYTES: u64 = 5 * 1024 * 1024;
 pub const CORS_ORIGINS: &str = "tauri://localhost,http://tauri.localhost";
+/// `tauri dev` serves the webview from `devUrl`; release builds never allow it.
+const DEV_CORS_ORIGIN: &str = "http://localhost:5173";
+
+fn cors_origins() -> String {
+    if cfg!(debug_assertions) {
+        format!("{CORS_ORIGINS},{DEV_CORS_ORIGIN}")
+    } else {
+        CORS_ORIGINS.into()
+    }
+}
 /// Ollama's default loopback endpoint (read by `LocalConfig.from_env`).
 pub const DEFAULT_LOCAL_LLM_ENDPOINT: &str = "http://127.0.0.1:11434";
 const EMBED_ENGINES: [&str; 3] = ["auto", "fixture", "local"];
@@ -780,7 +790,7 @@ impl Orchestrator {
             Kind::Api => {
                 e.push(("METIS_DESKTOP_AUTH_SECRET".into(), sec.api.clone()));
                 e.push(("METIS_DESKTOP_IDENTITY_PATH".into(), p(&d.identity)));
-                e.push(("METIS_CORS_ORIGINS".into(), CORS_ORIGINS.into()));
+                e.push(("METIS_CORS_ORIGINS".into(), cors_origins()));
                 speech_remote(&mut e);
             }
             Kind::Worker => speech_remote(&mut e),

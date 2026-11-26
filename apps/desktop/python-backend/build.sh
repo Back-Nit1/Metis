@@ -37,7 +37,8 @@ fi
   --collect-all metis_speech --collect-all metis_contracts --collect-submodules uvicorn \
   --hidden-import uvloop --hidden-import httptools --hidden-import websockets \
   $collect "$here/metis_backend.py"
-rm -rf "$out/metis-backend"
+# Old --onefile builds (metis-backend-<triple>, ~100 MB) are no longer referenced.
+rm -rf "$out/metis-backend" "$out"/metis-backend-*
 cp -R "$work/dist/metis-backend" "$out/metis-backend"
 touch "$out/metis-backend/metis-backend$ext"  # prepare-sidecar compares sources to this
 echo "built $out/metis-backend/metis-backend$ext (asr=$asr)"

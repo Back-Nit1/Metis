@@ -558,3 +558,27 @@ def test_an_invalid_transition_is_rejected(store, clock):
     with pytest.raises(MetisError) as exc:
         assert_transition(ReminderState.CANCELED, ReminderState.SCHEDULED)
     assert exc.value.code is ErrorCode.INVALID_STATE_TRANSITION
+
+
+def test_delayed_reminder_notification_admits_lateness(store, clock, context):
+    from metis_scheduler import build_notification
+
+    task = make_task(store, clock)
+    reminder = request_reminder(
+        store,
+        user_id=USER,
+        target_id=task.id,
+        target_kind="task",
+        target_revision=task.revision,
+        trigger_at=DUE,
+        timezone_name=NY,
+        clock=clock,
+        correlation_id="late-test",
+    )
+    clock.set(DUE + timedelta(hours=7, minutes=30))
+    notification = build_notification(reminder, task, clock=clock)
+    assert notification.body.startswith("Delivered late — 450 min after the scheduled time")
+    assert "2026-10-07T09:00-04:00" in notification.body
+    assert task.title in notification.body
+    clock.set(DUE + timedelta(seconds=10))
+    assert "Delivered late" not in build_notification(reminder, task, clock=clock).body

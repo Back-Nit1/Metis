@@ -1,0 +1,22 @@
+[Unit]
+Description=Verify SQLite backup and upload to private Cloud Storage
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=metis
+EnvironmentFile=/etc/metis-backup.env
+ExecStart=/usr/bin/python3 /opt/metis/ops/gcp/backup/sqlite-backup.py backup
+UMask=0077
+MemoryHigh=128M
+MemoryMax=256M
+MemorySwapMax=256M
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=15min
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/metis /var/backups/metis
+PrivateTmp=true

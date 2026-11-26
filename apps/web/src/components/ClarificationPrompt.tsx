@@ -8,14 +8,13 @@
  */
 import { useState } from "react";
 import type { ClarificationRequest, Reminder } from "../contracts/metis";
-import { DeliveryChannel, ReminderState } from "../contracts/metis";
+import { DeliveryChannel } from "../contracts/metis";
 import { api, ApiError } from "../lib/api";
 import { targetCandidates } from "../lib/statusUpdate";
-import { REMINDER_STATUS } from "../lib/status";
 import { Button } from "./Button";
 import { Card, Notice, SectionHeading } from "./Card";
 import { Field, inputClass } from "./Field";
-import { StatusPill } from "./StatusPill";
+import { ReminderStatus } from "./ReminderStatus";
 
 const REMINDER_FIELDS = ["registration_reminder_time", "event_date_time"];
 
@@ -95,7 +94,7 @@ export function ClarificationPrompt({
 
       {reminder ? (
         <div className="mt-3">
-          <StatusPill status={REMINDER_STATUS[reminder.state ?? ReminderState.PENDING_SCHEDULE]} />
+          <ReminderStatus reminder={reminder} />
         </div>
       ) : answerable ? (
         <>

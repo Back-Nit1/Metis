@@ -35,36 +35,57 @@ for upstream in "${upstreams[@]}"; do
   fi
 done
 
-printf '%s {\n' "$HOST"
-printf '\tlog {\n'
-printf '\t\toutput stdout\n'
-printf '\t\tformat json {\n'
-printf '\t\t\tduration_format seconds\n'
-printf '\t\t}\n'
-printf '\t}\n'
-printf '\t@docs path /docs* /redoc* /openapi.json\n'
-printf '\trespond @docs 404\n'
-printf '\treverse_proxy'
-printf ' %s' "${upstreams[@]}"
-cat <<CADDY
- {
-		# Active checks remove an unhealthy API before user traffic reaches it.
-		health_uri /v1/health
-		health_headers {
-			Host $HOST
-		}
-		health_interval 10s
-		health_timeout 2s
-		health_status 200
+# Change feeds have a separate listener and connection allowance.
+raw_changes="${METIS_CHANGES_UPSTREAMS:-127.0.0.1:8001}"
+raw_changes="${raw_changes//,/ }"
+read -r -a changes_upstreams <<<"$raw_changes"
+for upstream in "${changes_upstreams[@]}"; do
+  if [[ ! "$upstream" =~ ^[A-Za-z0-9.-]+:[0-9]{1,5}$ ]] ||
+     (( ${upstream##*:} < 1 || ${upstream##*:} > 65535 )); then
+    echo "invalid changes upstream: expected host:port" >&2
+    exit 2
+  fi
+done
+[ "${#changes_upstreams[@]}" -gt 0 ] || exit 2
 
-		# Passive checks catch failures that occur between active probes.
-		fail_duration 30s
-		max_fails 2
-		unhealthy_status 5xx
-
-		lb_policy least_conn
-		lb_try_duration 5s
-		lb_try_interval 250ms
-	}
-}
+proxy() {
+  printf '\t\treverse_proxy'
+  printf ' %s' "$@"
+  printf ' {\n'
+  # Ejecting the sole backend cannot improve availability. Only balance and
+  # quarantine failures when there is another backend to receive traffic.
+  if [ "$#" -gt 1 ]; then
+    cat <<CADDY
+            health_uri /v1/health
+            health_headers {
+                Host $HOST
+            }
+            health_interval 10s
+            health_timeout 2s
+            health_status 200
+            fail_duration 30s
+            max_fails 2
+            unhealthy_status 5xx
+            lb_policy least_conn
+            lb_try_duration 5s
+            lb_try_interval 250ms
 CADDY
+  fi
+  printf '\t\t}\n'
+}
+printf '%s {\n' "$HOST"
+cat <<'CADDY'
+    log {
+        output stdout
+        format json {
+            duration_format seconds
+        }
+    }
+    @docs path /docs* /redoc* /openapi.json
+    respond @docs 404
+    handle /v1/changes {
+CADDY
+proxy "${changes_upstreams[@]}"
+printf '\t}\n\thandle {\n'
+proxy "${upstreams[@]}"
+printf '\t}\n}\n'

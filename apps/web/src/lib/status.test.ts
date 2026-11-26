@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ErrorCode, ReminderState } from "../contracts/metis";
-import { FLOW_STATUS, REMINDER_STATUS, flowStateForError, type FlowState } from "./status";
+import { FLOW_STATUS, REMINDER_STATUS, flowStateForError, reminderStatus, type FlowState } from "./status";
 
 /** Every state the product specification requires must be expressible. */
 const REQUIRED: FlowState[] = [
@@ -53,5 +53,30 @@ describe("status vocabulary", () => {
     expect(flowStateForError(ErrorCode.PROVIDER_UNAVAILABLE)).toBe("provider_unavailable");
     expect(flowStateForError(ErrorCode.RATE_LIMITED)).toBe("retrying");
     expect(flowStateForError(ErrorCode.VALIDATION_FAILED)).toBe("failed");
+  });
+});
+
+describe("reminder timing", () => {
+  const due = Date.parse("2026-11-26T10:00:00Z");
+  const reminder = {
+    id: "rem_late", trigger_at: new Date(due).toISOString(), timezone: "UTC",
+    state: ReminderState.SCHEDULED,
+  } as import("../contracts/metis").Reminder;
+
+  it("changes a confirmed schedule to due and overdue as time passes", () => {
+    expect(reminderStatus(reminder, due - 1).label).toBe("Reminder scheduled");
+    expect(reminderStatus(reminder, due).label).toBe("Reminder due");
+    const late = reminderStatus(reminder, due + 7.5 * 3600_000);
+    expect(late.label).toBe("Reminder overdue");
+    expect(late.detail).toContain("450 min");
+    expect(late.detail).toContain("Delivery is not confirmed");
+  });
+
+  it("uses the snoozed time and leaves terminal states alone", () => {
+    expect(reminderStatus({ ...reminder, state: ReminderState.SNOOZED, snoozed_until: new Date(due + 3600_000).toISOString() }, due).label).toBe("Snoozed");
+    for (const state of [ReminderState.CANCELED, ReminderState.DELIVERED, ReminderState.SUPERSEDED]) {
+      expect(reminderStatus({ ...reminder, state }, due + 3600_000)).toBe(REMINDER_STATUS[state]);
+    }
+    expect(reminderStatus({ ...reminder, state: ReminderState.PENDING_SCHEDULE }, due + 60_000).label).toBe("Reminder overdue");
   });
 });

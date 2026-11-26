@@ -86,9 +86,11 @@ ensure compute instances describe "$VM" --zone "$ZONE" -- \
   --image-family ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud \
   --boot-disk-size 30GB --boot-disk-type pd-balanced \
   --subnet metis --no-address --service-account "$OBS_SA" --scopes cloud-platform \
-  --tags metis-https --provisioning-model STANDARD --no-restart-on-failure \
+  --tags metis-https --provisioning-model STANDARD --restart-on-failure \
   --graceful-shutdown --graceful-shutdown-max-duration=2m \
   --shielded-secure-boot --metadata enable-oslogin=TRUE
+
+g compute instances set-scheduling "$VM" --zone "$ZONE" --restart-on-failure >/dev/null
 
 # The SQLite databases and local object store live on the boot disk. Protect
 # both the instance and disk from being erased by an accidental VM deletion;

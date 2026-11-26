@@ -7,10 +7,10 @@ import { ReminderState, type Reminder } from "../contracts/metis";
 import { api } from "../lib/api";
 import { mutationError } from "../lib/mutationError";
 import { timeLabel } from "../lib/format";
-import { REMINDER_STATUS } from "../lib/status";
+
 import { Button } from "./Button";
 import { Field, inputClass } from "./Field";
-import { StatusPill } from "./StatusPill";
+import { ReminderStatus } from "./ReminderStatus";
 
 const OPEN = new Set<ReminderState>([ReminderState.PENDING_SCHEDULE, ReminderState.SCHEDULED, ReminderState.SNOOZED, ReminderState.SCHEDULE_FAILED]);
 
@@ -32,11 +32,14 @@ export function ReminderControls({ reminderId, initial, timezone }: { reminderId
 
   // pending_schedule is not a result: re-read until the scheduler settles it.
   const waiting = reminder?.state === ReminderState.PENDING_SCHEDULE;
+  const active = reminder != null && (OPEN.has(reminder.state ?? ReminderState.PENDING_SCHEDULE) || reminder.state === ReminderState.DISPATCHING);
   useEffect(() => {
-    if (!waiting) return;
-    const t = setInterval(() => void api.getReminder(reminderId).then(setReminder, () => undefined), 3000);
+    if (!active) return;
+    const t = setInterval(() => {
+      if (!document.hidden) void api.getReminder(reminderId).then(setReminder, () => undefined);
+    }, 3000);
     return () => clearInterval(t);
-  }, [waiting, reminderId]);
+  }, [active, reminderId]);
 
   if (!reminder) return message ? <p className="text-xs text-muted">{message}</p> : null;
   const state = reminder.state ?? ReminderState.PENDING_SCHEDULE;
@@ -59,7 +62,7 @@ export function ReminderControls({ reminderId, initial, timezone }: { reminderId
 
   return (
     <div className="mt-2 flex flex-col gap-1.5">
-      <StatusPill status={REMINDER_STATUS[state]} detail={false} />
+      <ReminderStatus reminder={reminder} />
       <p className="text-xs text-muted">
         {timeLabel(reminder.snoozed_until ?? reminder.trigger_at, reminder.timezone || timezone)} · {reminder.channel}
       </p>

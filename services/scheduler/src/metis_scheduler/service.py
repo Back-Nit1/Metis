@@ -464,6 +464,14 @@ def build_notification(
             deadline = getattr(target, "deadline_local_date", None)
             body = f"{title}" + (f" — due {deadline.isoformat()}" if deadline else "")
     now = clock.now()
+    late_seconds = int((now - reminder.trigger_at).total_seconds())
+    if late_seconds >= 60:
+        minutes = late_seconds // 60
+        due = reminder.trigger_at.astimezone(resolve_timezone(reminder.timezone)).isoformat(
+            timespec="minutes"
+        )
+        notice = f"Delivered late — {minutes} min after the scheduled time ({due}). "
+        body = notice + body[: 4000 - len(notice)]
     return Notification(
         # Derived from the occurrence so inserting it doubles as the dispatch claim.
         id="not_" + hashlib.sha256(reminder.occurrence_key.encode()).hexdigest()[:24],

@@ -6,7 +6,7 @@
  * indicator. "Uploaded" is not "transcribed" and "scheduling" is not
  * "scheduled" — those distinctions are the point of this file.
  */
-import { ErrorCode, ReminderState } from "../contracts/metis";
+import { ErrorCode, ReminderState, type Reminder } from "../contracts/metis";
 
 export type FlowState =
   | "idle"
@@ -226,3 +226,20 @@ export const REMINDER_STATUS: Record<ReminderState, StatusDescriptor> = {
     busy: false,
   },
 };
+
+/** Time-aware display: a confirmed schedule in the past is due, not future work. */
+export function reminderStatus(reminder: Reminder, now = Date.now()): StatusDescriptor {
+  const state = reminder.state ?? ReminderState.PENDING_SCHEDULE;
+  const base = REMINDER_STATUS[state];
+  const open = [ReminderState.PENDING_SCHEDULE, ReminderState.SCHEDULED, ReminderState.SNOOZED, ReminderState.DISPATCHING];
+  const due = Date.parse(reminder.snoozed_until ?? reminder.trigger_at);
+  if (!open.includes(state) || !Number.isFinite(due) || now < due) return base;
+  const minutes = Math.floor((now - due) / 60_000);
+  return {
+    ...base,
+    label: minutes >= 1 ? "Reminder overdue" : "Reminder due",
+    detail: `${minutes >= 1 ? `${minutes} min past the scheduled time. ` : ""}${base.detail} Delivery is not confirmed.`,
+    tone: "warn",
+    cue: "!",
+  };
+}

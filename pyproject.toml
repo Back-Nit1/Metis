@@ -83,6 +83,8 @@ ignore = [
 "services/speech/src/metis_speech/worker.py" = ["T20"]
 "services/speech/src/metis_speech/evaluate.py" = ["T20"]
 "services/retrieval/src/metis_retrieval/evaluate.py" = ["T20"]
+# Emits one JSON line per run; Cloud Logging log-based metrics parse stdout.
+"ops/gcp/monitoring/*.py" = ["T20"]
 
 [tool.mypy]
 python_version = "3.12"

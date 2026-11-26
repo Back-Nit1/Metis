@@ -61,11 +61,12 @@ test-integration: ## tests that need a container or real audio decoding
 	$(UV) run pytest -m integration
 
 .PHONY: check
+# desktop typecheck needs rust + a PyInstaller build; it runs in desktop-test.
 check: contracts-check ## lint, format check and typecheck
 	$(UV) run ruff check .
 	$(UV) run ruff format --check .
 	$(UV) run mypy packages services
-	$(PNPM) -r typecheck
+	$(PNPM) -r --filter '!@metis/desktop' typecheck
 
 .PHONY: fmt
 fmt: ## autoformat python and web sources

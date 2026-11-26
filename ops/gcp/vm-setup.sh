@@ -14,7 +14,7 @@ MODEL_REPO=Systran/faster-whisper-small.en
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q --no-install-recommends libsndfile1 ca-certificates curl caddy
+apt-get install -y -q --no-install-recommends libsndfile1 ca-certificates curl caddy make
 
 # Google Compute Engine's rsyslog rule forwards daemon and kernel messages to
 # /dev/console. Ubuntu runs rsyslog as the unprivileged `syslog` user, while

@@ -37,7 +37,7 @@ verb=create
 if g compute resource-policies describe "$POLICY" --region="$REGION" >/dev/null 2>&1; then
   verb=update
 fi
-# Compute chooses a start within the 08:00 UTC hour; these are crash-consistent
+# Compute chooses a start in its daily window beginning 08:00 UTC; these are crash-consistent
 # whole-disk snapshots. The independent SQLite archive is application-consistent.
 args=(compute resource-policies "$verb" snapshot-schedule "$POLICY"
   --region="$REGION" --daily-schedule --start-time=08:00

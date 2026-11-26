@@ -56,7 +56,7 @@ user's SQLite state, and disk snapshots also contain server credentials.
 | Backup | Schedule | Retention | Scope |
 | --- | --- | --- | --- |
 | SQLite archive | 07:00 UTC daily, up to 5 min jitter; catches up after reboot | latest 7 local, 30 days in Cloud Storage plus 7-day soft-delete default | online SQLite backup API, all `*.sqlite` files, `install_id`, SHA-256 manifest |
-| Disk snapshot | daily in the 08:00 UTC hour | 14 days while disk exists; kept if source disk is deleted | entire boot disk, including objects, recordings, configuration and SQLite WAL |
+| Disk snapshot | daily window starting 08:00 UTC (currently 4 hours) | 14 days while disk exists; kept if source disk is deleted | entire boot disk, including objects, recordings, configuration and SQLite WAL |
 
 The logical backup performs SQLite integrity/foreign-key checks and a trial
 restore before upload. Cloud Storage verifies the streamed upload checksum.

@@ -140,7 +140,13 @@ fn starts_in_dependency_order_with_correct_env_and_shuts_down_cleanly() {
     assert_eq!(stamp(&env, "worker", "env"), endpoint);
     assert_eq!(v["distinct"], true, "speech and api secrets must differ");
     assert_eq!(v["mode"], "local");
-    assert_eq!(v["cors"], "tauri://localhost,http://tauri.localhost");
+    // Debug builds also allow the `tauri dev` webview origin; release never does.
+    let cors = if cfg!(debug_assertions) {
+        "tauri://localhost,http://tauri.localhost,http://localhost:5173"
+    } else {
+        "tauri://localhost,http://tauri.localhost"
+    };
+    assert_eq!(v["cors"], cors);
     assert_eq!(v["leak"], "", "host METIS_* must not reach children");
     assert!(Path::new(v["sqlite"].as_str().unwrap()).is_absolute());
 

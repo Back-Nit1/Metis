@@ -115,9 +115,14 @@ def test_dead_letters_are_owner_scoped(client, adapters):
     ]
     ingest = next(lane for lane in client.get("/v1/queue").json()["lanes"] if lane["lane"] == "ingest")
     assert ingest["dead_letter"] == 1
-    assert client.post("/v1/queue/dead-letters/obx_theirs/retry").status_code == 404
-    assert client.post("/v1/queue/dead-letters/obx_mine/retry").status_code == 202
-    assert client.post("/v1/queue/dead-letters/obx_mine/retry").status_code == 404, "no longer dead"
+    url = "/v1/queue/dead-letters/{}/retry"
+    assert client.post(url.format("obx_mine")).status_code == 422, "retry requires an Idempotency-Key"
+    assert client.post(url.format("obx_theirs"), headers=key()).status_code == 404
+    same = key()
+    assert client.post(url.format("obx_mine"), headers=same).status_code == 202
+    replay = client.post(url.format("obx_mine"), headers=same)
+    assert replay.status_code == 202 and replay.json() == {"event_id": "obx_mine"}, "double-click replays"
+    assert client.post(url.format("obx_mine"), headers=key()).status_code == 404, "no longer dead"
     assert client.get("/v1/queue/dead-letters").json()["items"] == []
 
 

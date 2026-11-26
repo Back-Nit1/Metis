@@ -16,6 +16,16 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends libsndfile1 ca-certificates curl caddy
 
+# Google Compute Engine's rsyslog rule forwards daemon and kernel messages to
+# /dev/console. Ubuntu runs rsyslog as the unprivileged `syslog` user, while
+# /dev/console is writable only by root:tty. Without this supplementary group,
+# rsyslog retries the failed output every 30 seconds and floods the journal.
+# Preserve serial-console diagnostics instead of disabling the vendor rule.
+if id syslog >/dev/null 2>&1 && getent group tty >/dev/null 2>&1; then
+  usermod -aG tty syslog
+  systemctl restart rsyslog
+fi
+
 id metis >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin metis
 mkdir -p "$DATA" "$MODELS"
 
@@ -97,11 +107,27 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 EOF
+  # Unit files contain configuration paths, not secret values. Keep their mode
+  # consistent even when a previous install created one under a restrictive
+  # umask; systemd otherwise emits a warning on every daemon reload.
+  chmod 0644 "/etc/systemd/system/$1.service"
 }
 unit metis-api "$APP/.venv/bin/uvicorn metis_api.main:app --host 127.0.0.1 --port 8000"
 unit metis-worker "$APP/.venv/bin/python -m metis_pipeline.local_worker"
 unit metis-speech "$APP/.venv/bin/python -m metis_speech.server --port 8787"
 unit metis-web "/usr/bin/python3 -m http.server 5173 --bind 127.0.0.1 --directory $APP/apps/web/dist"
+
+# Keep the API's global concurrency ceiling separate from its per-client
+# sliding-window request limit. A drop-in avoids shell interpolation in
+# ExecStart and can be rolled out without replacing the rest of the unit.
+install -D -m 0644 "$APP/ops/gcp/systemd/metis-api-limits.conf" \
+  /etc/systemd/system/metis-api.service.d/limits.conf
+install -D -m 0755 "$APP/ops/gcp/monitoring/queue-observer.py" \
+  /usr/local/libexec/metis-queue-observer
+install -m 0644 "$APP/ops/gcp/systemd/metis-queue-observer.service" \
+  /etc/systemd/system/metis-queue-observer.service
+install -m 0644 "$APP/ops/gcp/systemd/metis-queue-observer.timer" \
+  /etc/systemd/system/metis-queue-observer.timer
 
 # Public edge: TLS + health-checked load balancing across the configured API
 # endpoints. A single-VM install defaults to the loopback API. Additional
@@ -118,6 +144,7 @@ chown -R metis:metis "$DATA"
 chown -R root:root "$APP" "$MODELS" && chmod -R a+rX "$APP" "$MODELS"
 systemctl daemon-reload
 systemctl enable -q metis-api metis-worker metis-speech metis-web
+systemctl enable -q --now metis-queue-observer.timer
 systemctl restart metis-api metis-worker metis-speech metis-web
 
 # Host CPU/memory metrics plus systemd journal logs. The VM service account is

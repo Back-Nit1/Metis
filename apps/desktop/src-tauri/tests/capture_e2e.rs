@@ -58,18 +58,15 @@ impl Backend for FixtureGate {
 }
 
 fn backend() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
-    std::fs::read_dir(&dir)
-        .unwrap_or_else(|_| panic!("{} missing: run `pnpm sidecar:prepare`", dir.display()))
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| {
-            p.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("metis-backend-")
-        })
-        .expect("packaged backend missing: run `pnpm sidecar:prepare`")
+    let exe = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("binaries/metis-backend")
+        .join(format!("metis-backend{}", std::env::consts::EXE_SUFFIX));
+    assert!(
+        exe.is_file(),
+        "{} missing: run `pnpm sidecar:prepare`",
+        exe.display()
+    );
+    exe
 }
 
 /// 1.5 s, 48 kHz stereo, 16-bit: exercises downmix + resample on the way in.

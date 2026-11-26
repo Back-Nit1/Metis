@@ -9,6 +9,8 @@ trap 'rm -rf "$tmp"' EXIT
 HOST=api.example.test "$renderer" >"$tmp/default.caddy"
 grep -Fq 'reverse_proxy 127.0.0.1:8000 {' "$tmp/default.caddy"
 grep -Fq 'health_uri /v1/health' "$tmp/default.caddy"
+grep -Fq 'log {' "$tmp/default.caddy"
+grep -Fq 'duration_format seconds' "$tmp/default.caddy"
 grep -Fq 'Host api.example.test' "$tmp/default.caddy"
 grep -Fq 'lb_policy least_conn' "$tmp/default.caddy"
 grep -Fq 'fail_duration 30s' "$tmp/default.caddy"

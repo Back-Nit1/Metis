@@ -677,33 +677,17 @@ def _reconcile_reminders_for_target(ctx: RequestContext, target: Any, *, kind: s
     A completed task or canceled event cancels its pending reminders; a moved
     date re-points them. Both go through the scheduler's own state machine.
     """
-    from metis_contracts import REMINDER_ACTIVE_STATES
-    from metis_scheduler import cancel_reminder, retarget_reminder
+    from metis_scheduler import reconcile_reminders_for_target
 
-    state_value = getattr(getattr(target, "state", None), "value", None)
-    attendance = getattr(getattr(target, "attendance_status", None), "value", None)
-    dead = state_value in ("done", "canceled") or attendance in ("canceled", "declined")
-
-    for reminder in ctx.state.list_reminders_for_target(ctx.user_id, target.id):
-        if reminder.state not in REMINDER_ACTIVE_STATES:
-            continue
-        if dead:
-            cancel_reminder(
-                ctx.state,
-                reminder,
-                clock=ctx.adapters.clock,
-                correlation_id=ctx.correlation_id,
-                reason=f"the target is {state_value or attendance}",
-            )
-        elif reminder.target_revision != target.revision:
-            retarget_reminder(
-                ctx.state,
-                reminder,
-                trigger_at=reminder.trigger_at,
-                target_revision=target.revision,
-                clock=ctx.adapters.clock,
-                correlation_id=ctx.correlation_id,
-            )
+    # ``kind`` documents the caller's ownership boundary; the typed target is
+    # authoritative for the reconciliation itself.
+    _ = kind
+    reconcile_reminders_for_target(
+        ctx.state,
+        target,
+        clock=ctx.adapters.clock,
+        correlation_id=ctx.correlation_id,
+    )
 
 
 def _invalidate_plans(ctx: RequestContext) -> None:

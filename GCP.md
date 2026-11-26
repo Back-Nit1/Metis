@@ -18,14 +18,14 @@ details live in `ops/gcp/README.md`; this is the operator's guide.
 
 ## Console links
 
-| What | Link |
-| --- | --- |
-| Dashboard | https://console.cloud.google.com/monitoring/dashboards?project=metis-dev-856337 |
-| Uptime checks | https://console.cloud.google.com/monitoring/uptime?project=metis-dev-856337 |
-| Alert policies | https://console.cloud.google.com/monitoring/alerting/policies?project=metis-dev-856337 |
-| Logs Explorer | https://console.cloud.google.com/logs/query?project=metis-dev-856337 |
-| VM details | https://console.cloud.google.com/compute/instancesDetail/zones/us-central1-a/instances/metis?project=metis-dev-856337 |
-| Cloud Scheduler | https://console.cloud.google.com/cloudscheduler?project=metis-dev-856337 |
+| What            | Link                                                                                                                  |
+| --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Dashboard       | https://console.cloud.google.com/monitoring/dashboards?project=metis-dev-856337                                       |
+| Uptime checks   | https://console.cloud.google.com/monitoring/uptime?project=metis-dev-856337                                           |
+| Alert policies  | https://console.cloud.google.com/monitoring/alerting/policies?project=metis-dev-856337                                |
+| Logs Explorer   | https://console.cloud.google.com/logs/query?project=metis-dev-856337                                                  |
+| VM details      | https://console.cloud.google.com/compute/instancesDetail/zones/us-central1-a/instances/metis?project=metis-dev-856337 |
+| Cloud Scheduler | https://console.cloud.google.com/cloudscheduler?project=metis-dev-856337                                              |
 
 ## Common commands
 
@@ -53,11 +53,11 @@ All scripts are idempotent: safe to re-run.
 
 Times are `America/New_York`:
 
-| Job | Schedule | Effect |
-| --- | --- | --- |
-| `metis-stop-morning` | 04:00 Mon–Sat | stop |
-| `metis-stop-sunday` | 00:00 Sun | stop |
-| `metis-start-day` | 11:30 Mon–Sat | start |
+| Job                  | Schedule      | Effect |
+| -------------------- | ------------- | ------ |
+| `metis-stop-morning` | 04:00 Mon–Sat | stop   |
+| `metis-stop-sunday`  | 00:00 Sun     | stop   |
+| `metis-start-day`    | 11:30 Mon–Sat | start  |
 
 The VM is **off all Sunday and 04:00–11:30 every other day**. Uptime failures
 and empty charts in those windows are expected, not incidents.
@@ -115,14 +115,14 @@ e2-medium has burstable shared CPU. Transcription spikes it, which is fine.
 
 ### Reading charts together
 
-| You see | Probably |
-| --- | --- |
-| Uptime fails, memory cliff just before | OOM kill; whisper + 4 GB too tight |
-| Uptime fails, errors spike | Code crash; read the traceback |
-| Uptime fails, all charts go flat or empty | VM stopped (schedule, preemption, manual) |
-| Uptime fine, errors climbing | Partial breakage; health passes but features fail |
-| CPU pinned, memory fine | Runaway job or speech backlog |
-| Disk climbing toward full | Logs or uploads filling up; clean up before it crashes |
+| You see                                   | Probably                                               |
+| ----------------------------------------- | ------------------------------------------------------ |
+| Uptime fails, memory cliff just before    | OOM kill; whisper + 4 GB too tight                     |
+| Uptime fails, errors spike                | Code crash; read the traceback                         |
+| Uptime fails, all charts go flat or empty | VM stopped (schedule, preemption, manual)              |
+| Uptime fine, errors climbing              | Partial breakage; health passes but features fail      |
+| CPU pinned, memory fine                   | Runaway job or speech backlog                          |
+| Disk climbing toward full                 | Logs or uploads filling up; clean up before it crashes |
 
 ## Alerts and notifications
 

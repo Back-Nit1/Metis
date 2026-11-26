@@ -1,0 +1,17 @@
+{
+  "name": "metis_caddy_request_latency_seconds",
+  "description": "Caddy request latency in seconds for the Metis public edge.",
+  "filter": "resource.type=\"gce_instance\" AND jsonPayload._SYSTEMD_UNIT=\"caddy.service\" AND jsonPayload.MESSAGE:\"\\\"logger\\\":\\\"http.log.access.log0\\\"\"",
+  "valueExtractor": "REGEXP_EXTRACT(jsonPayload.MESSAGE, \"\\\"duration\\\":([0-9.]+)\")",
+  "bucketOptions": {
+    "explicitBuckets": {
+      "bounds": [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10]
+    }
+  },
+  "metricDescriptor": {
+    "displayName": "Metis Caddy request latency",
+    "metricKind": "DELTA",
+    "valueType": "DISTRIBUTION",
+    "unit": "s"
+  }
+}

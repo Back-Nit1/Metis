@@ -122,6 +122,12 @@ class Limits:
         default_factory=lambda: _env_int("METIS_CORPUS_MAX_FILE_BYTES", 20 * 1024 * 1024)
     )
     #: Share of retrieval candidates the corpus lane may take (percent).
+    dead_letter_max_per_user: int = field(
+        default_factory=lambda: _env_int("METIS_DEAD_LETTER_MAX_PER_USER", 200)
+    )
+    dead_letter_retention_days: int = field(
+        default_factory=lambda: _env_int("METIS_DEAD_LETTER_RETENTION_DAYS", 30)
+    )
     retrieval_corpus_share_pct: int = field(
         default_factory=lambda: _env_int("METIS_RETRIEVAL_CORPUS_SHARE", 50)
     )

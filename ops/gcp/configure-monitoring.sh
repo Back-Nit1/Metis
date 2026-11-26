@@ -60,6 +60,37 @@ else
     --log-filter="$error_filter"
 fi
 
+upsert_counter_metric() {
+  local name="$1" description="$2" filter="$3"
+  if g logging metrics describe "$name" >/dev/null 2>&1; then
+    g logging metrics update "$name" --description="$description" --log-filter="$filter"
+  else
+    g logging metrics create "$name" --description="$description" --log-filter="$filter"
+  fi
+}
+
+upsert_distribution_metric() {
+  local name="$1" config="$2"
+  if g logging metrics describe "$name" >/dev/null 2>&1; then
+    g logging metrics update "$name" --config-from-file="$config"
+  else
+    g logging metrics create "$name" --config-from-file="$config"
+  fi
+}
+
+caddy_access_filter='resource.type="gce_instance" AND jsonPayload._SYSTEMD_UNIT="caddy.service" AND jsonPayload.MESSAGE:"\"logger\":\"http.log.access.log0\""'
+upsert_counter_metric metis_caddy_requests \
+  "All Caddy requests handled by the Metis public edge" "$caddy_access_filter"
+upsert_counter_metric metis_caddy_5xx \
+  "Caddy requests returning HTTP 5xx from the Metis public edge" \
+  "$caddy_access_filter AND jsonPayload.MESSAGE=~\"\\\"status\\\":5[0-9][0-9](,|})\""
+upsert_distribution_metric metis_caddy_request_latency_seconds \
+  "$GCP_DIR/monitoring/caddy-latency-metric.json"
+upsert_distribution_metric metis_outbox_backlog \
+  "$GCP_DIR/monitoring/outbox-backlog-metric.json"
+upsert_distribution_metric metis_outbox_oldest_age_seconds \
+  "$GCP_DIR/monitoring/outbox-age-metric.json"
+
 # Optional: NOTIFY_EMAIL=you@example.com attaches an email channel to every policy.
 # Channels have no GA gcloud command, so use the REST API directly.
 channel=""
@@ -88,6 +119,21 @@ ensure_policy() {
   fi
   if [ -n "$channel" ]; then
     g monitoring policies update "$name" --add-notification-channels="$channel" >/dev/null
+  fi
+}
+
+upsert_policy_file() {
+  local display_name="$1" config="$2"
+  local name
+  name="$(g monitoring policies list \
+    --filter="displayName=\"$display_name\"" --format='value(name)' --limit=1)"
+  if [ -z "$name" ]; then
+    name="$(g monitoring policies create --policy-from-file="$config" --format='value(name)')"
+  else
+    g monitoring policies update "$name" --policy-from-file="$config" >/dev/null
+  fi
+  if [ -n "$channel" ]; then
+    g monitoring policies update "$name" --set-notification-channels="$channel" >/dev/null
   fi
 }
 
@@ -120,6 +166,13 @@ ensure_policy "Metis service errors" \
   --condition-filter="resource.type=\"gce_instance\" AND metric.type=\"logging.googleapis.com/user/metis_service_errors\" AND resource.label.\"instance_id\"=\"$instance_id\"" \
   --duration=0s --if='> 0' --trigger-count=1 --combiner=OR \
   --documentation="Caddy or a Metis systemd unit logged a failure/error."
+
+upsert_policy_file "Metis API latency high" \
+  "$GCP_DIR/monitoring/policy-caddy-latency.json"
+upsert_policy_file "Metis API 5xx rate high" \
+  "$GCP_DIR/monitoring/policy-caddy-5xx.json"
+upsert_policy_file "Metis worker backlog high" \
+  "$GCP_DIR/monitoring/policy-outbox-backlog.json"
 
 dashboard_name="$(g monitoring dashboards list \
   --filter='displayName="Metis Operations"' --format='value(name)' --limit=1)"

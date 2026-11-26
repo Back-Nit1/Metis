@@ -1,0 +1,43 @@
+{
+  "displayName": "Metis worker backlog high",
+  "combiner": "OR",
+  "enabled": true,
+  "conditions": [
+    {
+      "displayName": "More than ten outbox jobs are waiting",
+      "conditionThreshold": {
+        "filter": "resource.type=\"gce_instance\" AND metric.type=\"logging.googleapis.com/user/metis_outbox_backlog\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 10,
+        "duration": "300s",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99"
+          }
+        ],
+        "trigger": {"count": 1}
+      }
+    },
+    {
+      "displayName": "Oldest waiting outbox job exceeds five minutes",
+      "conditionThreshold": {
+        "filter": "resource.type=\"gce_instance\" AND metric.type=\"logging.googleapis.com/user/metis_outbox_oldest_age_seconds\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 300,
+        "duration": "300s",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99"
+          }
+        ],
+        "trigger": {"count": 1}
+      }
+    }
+  ],
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The worker queue is growing or a ready job has waited more than five minutes. Inspect metis-worker logs, dead letters, and queue statistics before accepting more ingest work."
+  }
+}

@@ -220,9 +220,15 @@ def dead_letters(ctx: Context, limit: int = Query(default=50, ge=1, le=200)) -> 
 
 @router.post("/queue/dead-letters/{event_id}/retry", status_code=status.HTTP_202_ACCEPTED)
 def retry_dead_letter(event_id: str, ctx: Context) -> dict[str, Any]:
+    """Requeue once per key: a double-click replays instead of answering 404."""
+    ctx.require_idempotency_key()
+    if replayed := ctx.replay():
+        return replayed
     if not ctx.state.requeue_outbox(ctx.user_id, event_id):
         raise MetisError(ErrorCode.NOT_FOUND, f"dead letter {event_id} not found")
-    return {}
+    response = {"event_id": event_id}
+    ctx.remember(response)
+    return response
 
 
 @router.get("/changes", response_model=ChangesResponse)

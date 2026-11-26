@@ -37,6 +37,8 @@ from metis_contracts import (
 )
 from metis_contracts.enums import FailureCategory, SourceKind, SourceLifecycle
 
+from .parsers import is_indexable
+
 log = logging.getLogger("metis.retrieval.connectors")
 
 #: Matched (case-insensitively) against every path component. Not overridable.
@@ -108,7 +110,8 @@ def walk(root: Path, *, include_globs: list[str], exclude_globs: list[str]) -> I
             rel = path.relative_to(root).as_posix()
             if path.is_symlink() or _excluded(path, rel, exclude_globs):
                 continue
-            if _included(path, rel, include_globs):
+            # ponytail: reads 8 KiB per file each sync; cache by mtime if huge folders drag.
+            if _included(path, rel, include_globs) and is_indexable(path):
                 yield path
 
 

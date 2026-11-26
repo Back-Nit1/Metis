@@ -36,6 +36,12 @@ for upstream in "${upstreams[@]}"; do
 done
 
 printf '%s {\n' "$HOST"
+printf '\tlog {\n'
+printf '\t\toutput stdout\n'
+printf '\t\tformat json {\n'
+printf '\t\t\tduration_format seconds\n'
+printf '\t\t}\n'
+printf '\t}\n'
 printf '\t@docs path /docs* /redoc* /openapi.json\n'
 printf '\trespond @docs 404\n'
 printf '\treverse_proxy'

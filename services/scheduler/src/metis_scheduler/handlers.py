@@ -18,13 +18,38 @@ from metis_contracts.entities import Notification
 from metis_contracts.events import ReminderDuePayload, ReminderSyncPayload
 from metis_pipeline.dispatcher import DispatchContext, HandlerRegistry
 
-from .service import build_notification, evaluate_due, occurrence_key
+from .service import build_notification, evaluate_due, occurrence_key, reconcile_reminders_for_target
 
 log = logging.getLogger("metis.scheduler.handlers")
 
 DailyState = Literal["disabled", "pending_schedule", "scheduled", "schedule_failed"]
 
 registry = HandlerRegistry()
+
+
+@registry.register(EventType.TASK_CHANGED)
+@registry.register(EventType.EVENT_CHANGED)
+def handle_entity_changed(envelope: EventEnvelope, context: DispatchContext) -> None:
+    """Durably reconcile reminders after a task or event mutation commits."""
+    kind = "task" if envelope.event_type == EventType.TASK_CHANGED else "event"
+    id_key = f"{kind}_id"
+    target_id = envelope.target_id or envelope.payload.get(id_key)
+    if not target_id:
+        raise MetisError(ErrorCode.VALIDATION_FAILED, f"{envelope.event_type} has no target id")
+    payload_id = envelope.payload.get(id_key)
+    if payload_id is not None and payload_id != target_id:
+        raise MetisError(ErrorCode.VALIDATION_FAILED, f"{id_key} does not match the event target")
+
+    target = context.state_store.get(envelope.user_id, kind, target_id)
+    if target is None:
+        raise MetisError(ErrorCode.TOMBSTONED, f"the {kind} was deleted")
+    reconcile_reminders_for_target(
+        context.state_store,
+        target,
+        clock=context.clock,
+        correlation_id=envelope.correlation_id,
+    )
+    log.info("reconciled reminders for %s %s revision=%s", kind, target.id, target.revision)
 
 
 @registry.register(EventType.REMINDER_SCHEDULE_SYNC)

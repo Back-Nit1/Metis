@@ -50,6 +50,7 @@ from metis_contracts import (
 from metis_contracts.api import Change, LaneStats, QueueStats
 from metis_contracts.common import Record
 from metis_contracts.entities import ENTITY_MODELS, AvailabilityBlock, Job, Notification, Reminder
+from metis_contracts.events import EventType
 
 SCHEMA = (Path(__file__).parent / "schema.sql").read_text()
 
@@ -691,13 +692,58 @@ class SqliteStateStore:
                    WHERE user_id=? AND id=?""",
                 (state, failure, error, available_at, now.isoformat(), user_id, event_id),
             )
+            if state == "done":
+                self._resolve_dead_letters_locked(user_id, event_id, now.isoformat())
+            elif state == "dead_letter":
+                self.evict_dead_letters()
+
+    def _resolve_dead_letters_locked(self, user_id: str, event_id: str, now: str) -> None:
+        """A later success on the same target makes its older dead letters moot.
+        A purge resolves every event type: the target no longer exists."""
+        self._conn.execute(
+            """UPDATE outbox SET state='superseded', failure='superseded', updated_at=?
+               WHERE user_id=? AND state='dead_letter' AND id<>? AND target_id IS NOT NULL
+                 AND EXISTS (
+                     SELECT 1 FROM outbox AS done
+                     WHERE done.user_id=outbox.user_id AND done.id=?
+                       AND done.target_id=outbox.target_id
+                       AND done.created_at>=outbox.created_at
+                       AND (done.event_type=outbox.event_type OR done.event_type=?)
+                 )""",
+            (now, user_id, event_id, event_id, EventType.CORPUS_PURGE_REQUESTED),
+        )
+
+    def evict_dead_letters(self) -> int:
+        """FIFO retention: expire letters past their age, then the oldest over
+        each owner's cap. Rows stay for audit but leave the queue."""
+        limits = settings().limits
+        now = self._clock.now()
+        cutoff = (now - timedelta(days=limits.dead_letter_retention_days)).isoformat()
+        with self._lock:
+            aged = self._conn.execute(
+                "UPDATE outbox SET state='expired', updated_at=? WHERE state='dead_letter' AND updated_at<?",
+                (now.isoformat(), cutoff),
+            ).rowcount
+            over = self._conn.execute(
+                """UPDATE outbox SET state='expired', updated_at=?
+                   WHERE state='dead_letter' AND (user_id, id) IN (
+                       SELECT user_id, id FROM (
+                           SELECT user_id, id, ROW_NUMBER() OVER (
+                               PARTITION BY user_id ORDER BY updated_at DESC, id DESC
+                           ) AS position
+                           FROM outbox WHERE state='dead_letter'
+                       ) WHERE position>?
+                   )""",
+                (now.isoformat(), limits.dead_letter_max_per_user),
+            ).rowcount
+        return int(aged) + int(over)
 
     def list_dead_letters(self, limit: int = 50, *, user_id: str | None = None) -> list[OutboxEvent]:
-        """Dead-lettered events, newest first. ``user_id=None`` is the operator view."""
+        """Dead-lettered events, oldest first (FIFO). ``user_id=None`` is the operator view."""
         owner_sql, params = ("AND user_id=?", (user_id,)) if user_id is not None else ("", ())
         with self._lock:
             rows = self._conn.execute(
-                f"SELECT * FROM outbox WHERE state='dead_letter' {owner_sql} ORDER BY updated_at DESC LIMIT ?",
+                f"SELECT * FROM outbox WHERE state='dead_letter' {owner_sql} ORDER BY updated_at, id LIMIT ?",
                 (*params, limit),
             ).fetchall()
         return [self._outbox_from_row(r) for r in rows]

@@ -7,17 +7,15 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 fn backend() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
-    let triple_suffix = "metis-backend-".to_string();
-    std::fs::read_dir(&dir)
-        .unwrap_or_else(|_| panic!("{} missing: run `pnpm sidecar:prepare`", dir.display()))
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| {
-            let n = p.file_name().unwrap().to_string_lossy().to_string();
-            n.starts_with("metis-backend-") && n.starts_with(&triple_suffix)
-        })
-        .expect("packaged backend missing: run `pnpm sidecar:prepare`")
+    let exe = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("binaries/metis-backend")
+        .join(format!("metis-backend{}", std::env::consts::EXE_SUFFIX));
+    assert!(
+        exe.is_file(),
+        "{} missing: run `pnpm sidecar:prepare`",
+        exe.display()
+    );
+    exe
 }
 
 fn open(port: u16) -> bool {
@@ -33,7 +31,7 @@ fn packaged_backend_launch_authenticated_health_shutdown() {
     let dir = std::env::temp_dir().join(format!("metis-real-{}", std::process::id()));
     let mut stack = Stack::start(Config::production(backend(), &dir)).unwrap();
 
-    // Cold PyInstaller onefile start-up is several seconds.
+    // Cold PyInstaller start-up can take seconds under memory pressure.
     let end = Instant::now() + Duration::from_secs(120);
     let st = loop {
         let st = stack.status();

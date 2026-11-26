@@ -214,7 +214,8 @@ function DeadLetterRow({ d, timezone, onRetried }: { d: DeadLetter; timezone: st
   const retry = async () => {
     setBusy(true);
     try {
-      await api.retryDeadLetter(d.event_id);
+      // updated_at changes when a retry fails again, so the next attempt gets a new key.
+      await api.retryDeadLetter(d.event_id, `dlq:${d.event_id}:${d.updated_at}`.replace(/[^A-Za-z0-9_.:=-]/g, "-").slice(0, 128));
       onRetried({ tone: "info", text: `Queued “${d.title ?? d.event_type}” again. It has not run yet.` });
     } catch (cause) {
       onRetried({ tone: "bad", text: mutationError("This item", cause).text });

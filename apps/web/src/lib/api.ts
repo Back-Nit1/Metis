@@ -371,8 +371,9 @@ export const api = {
     request<JobAccepted>(`/v1/connectors/${connectorId}/sync`, { method: "POST", idempotencyKey }),
   queue: () => request<QueueStats>("/v1/queue"),
   deadLetters: () => request<DeadLetterPage>("/v1/queue/dead-letters"),
-  retryDeadLetter: (eventId: string) =>
-    request<Record<string, never>>(`/v1/queue/dead-letters/${eventId}/retry`, { method: "POST" }),
+  /** Same key = same retry. Derive it from the failure so a double-click cannot requeue twice. */
+  retryDeadLetter: (eventId: string, idempotencyKey: string) =>
+    request<{ event_id: string }>(`/v1/queue/dead-letters/${eventId}/retry`, { method: "POST", idempotencyKey }),
   /** The sync worker polls this itself; exposed here for one-off reads. */
   changes: (after: number, wait = 0, signal?: AbortSignal) =>
     request<ChangesResponse>(`/v1/changes?after=${after}&wait=${wait}`, { signal }),

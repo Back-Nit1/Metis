@@ -8,9 +8,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
     <title>Metis</title>
+    <style>:root{color-scheme:light dark}body{margin:0;background:#fff}@media (prefers-color-scheme:dark){body{background:#0a0a0a}}</style>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Painted before any JavaScript runs; React replaces it on mount. -->
+    <div id="root"><main role="status" style="min-height:100dvh;display:grid;place-items:center;font:14px system-ui,sans-serif;color:#737373">Starting Metis…</main></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

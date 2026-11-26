@@ -201,7 +201,7 @@ impl Default for Policy {
             jitter: 0.3,
             max_restarts: 5,
             stable_after: Duration::from_secs(60),
-            // A cold onefile executable unpacks and imports for several seconds.
+            // A cold start imports for a second or more; slower under memory pressure.
             startup_deadline: Duration::from_secs(60),
             warm_deadline: Duration::from_secs(180),
             health_interval: Duration::from_secs(5),

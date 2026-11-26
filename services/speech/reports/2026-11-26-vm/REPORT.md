@@ -53,3 +53,31 @@ For a proper accuracy set, supply independently checked human references via
 `--fixtures` and omit `--speed-only`; reference IDs must match the unique audio
 filenames. The default `make speech-bench` reference echo measures only the
 scoring code. The new real-audio path refuses the fixture transcriber.
+
+## Deployed runtime: requested `make speech-bench` verification
+
+After main commit `01f32a1` was deployed, we ran the command above through
+`make speech-bench`, with `UV_NO_SYNC=1 UV_OFFLINE=1` to avoid dependency
+changes. The VM initially lacked `make`; installing only that package resolved
+the command failure before the measurement. The benchmark exited **0**.
+The new decoder ran with `METIS_SPEECH_ENGINE=faster_whisper` and
+`METIS_SPEECH_CPU_THREADS=2`, confirmed from the process environment without
+exposing the speech bearer token.
+
+Three unique recordings, two passes: **95.014 seconds audio decoded in
+56.5116 seconds wall time**, aggregate **RTF 0.5948**. Median per-clip wall
+latency was **9.6975 s**, maximum **11.4366 s**. Pass 1 took 29.5657 s and
+pass 2 took 26.9459 s for the same 47.507 s audio each. These short-clip
+measurements do not establish concurrent-load or five-minute-clip performance.
+This command used `--speed-only`, so its accuracy result is explicitly null;
+the separate limited user-correction WER pilot above remains the only accuracy
+measurement. Raw sanitized output: [post-runtime.json](post-runtime.json).
+
+All seven services remained active with **zero restarts**. The speech service
+peaked at **987,570,176 bytes (~941.8 MiB)** under its 1536 MiB cap. The jobs
+worker used ~68.8 MiB, and the independent timer process ~77.9 MiB (peak ~78.6
+MiB) under its 160 MiB cap. Both API processes were below 85 MiB. The VM had
+~2513.4 MiB available memory afterward; its 2048 MiB swap was enabled and
+unused. This verifies that these actual short recordings fit the configured
+limits, not that all future spikes will fit. Resource evidence:
+[runtime-memory.json](runtime-memory.json).

@@ -1,0 +1,68 @@
+{
+  "services": {
+    "metis-api": {
+      "NRestarts": "0",
+      "MemoryCurrent": "83341312",
+      "MemoryPeak": "84021248",
+      "MemoryMax": "536870912",
+      "MemorySwapMax": "268435456",
+      "ActiveState": "active"
+    },
+    "metis-changes": {
+      "NRestarts": "0",
+      "MemoryCurrent": "88788992",
+      "MemoryPeak": "88928256",
+      "MemoryMax": "268435456",
+      "MemorySwapMax": "268435456",
+      "ActiveState": "active"
+    },
+    "metis-worker": {
+      "NRestarts": "0",
+      "MemoryCurrent": "72159232",
+      "MemoryPeak": "73674752",
+      "MemoryMax": "402653184",
+      "MemorySwapMax": "536870912",
+      "ActiveState": "active"
+    },
+    "metis-timers": {
+      "NRestarts": "0",
+      "MemoryCurrent": "81678336",
+      "MemoryPeak": "82448384",
+      "MemoryMax": "167772160",
+      "MemorySwapMax": "134217728",
+      "ActiveState": "active"
+    },
+    "metis-speech": {
+      "NRestarts": "0",
+      "MemoryCurrent": "685518848",
+      "MemoryPeak": "987570176",
+      "MemoryMax": "1610612736",
+      "MemorySwapMax": "1073741824",
+      "ActiveState": "active",
+      "speech_engine": "faster_whisper",
+      "speech_cpu_threads": "2"
+    },
+    "metis-web": {
+      "NRestarts": "0",
+      "MemoryCurrent": "11452416",
+      "MemoryPeak": "11747328",
+      "MemoryMax": "100663296",
+      "MemorySwapMax": "67108864",
+      "ActiveState": "active"
+    },
+    "caddy": {
+      "NRestarts": "0",
+      "MemoryCurrent": "43970560",
+      "MemoryPeak": "51531776",
+      "MemoryMax": "201326592",
+      "MemorySwapMax": "134217728",
+      "ActiveState": "active"
+    }
+  },
+  "memory": {
+    "MemTotal_kib": 4002052,
+    "MemAvailable_kib": 2573676,
+    "SwapTotal_kib": 2097148,
+    "SwapFree_kib": 2097148
+  }
+}

@@ -103,6 +103,26 @@ make speech-bench                                  # metric code, echoed referen
 python -m metis_speech.evaluate --hypotheses hypotheses.json --json
 ```
 
+For real recordings on the VM, reuse the single warm loopback decoder. Load
+`METIS_SPEECH_SECRET` through the protected service environment; do not paste it
+into shell history. Set `METIS_SPEECH_ENGINE=remote` and
+`METIS_SPEECH_ENDPOINT=http://127.0.0.1:8787`, then run:
+
+```bash
+make speech-bench SPEECH_BENCH_ARGS="--audio-dir /var/lib/metis/objects --speed-only --passes 2 --report /tmp/speech-bench.json"
+```
+
+This decodes each unique recording, reports per-clip wall/decode/audio time and
+model metadata, and computes aggregate real-time factor. It never prints or
+saves transcripts. `--speed-only` explicitly reports accuracy as unmeasured.
+For accuracy, omit `--speed-only` and pass `--fixtures <reference-directory>`;
+its `evaluation_set.json` must contain human reference transcripts whose IDs
+exactly match the unique audio filenames. Existing uncorrected ASR output is
+not a reference. Keep private audio and reference files outside git. Two
+passes measure reuse of the running service, not a cold machine or fresh model
+load. See [the real-VM pilot](reports/2026-11-26-vm/REPORT.md) for limits of the
+available recordings.
+
 24 synthetic references cover clean speech, noise, fast speech, pauses, project
 names (Cerno, Themis), Bloomberg/New York, spoken dates, negation and silence.
 Held-out items exist so decode parameters are not tuned on the evaluation

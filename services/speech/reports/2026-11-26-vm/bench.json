@@ -1,0 +1,45 @@
+{
+  "measurement": "real_uploaded_recordings_existing_warm_service",
+  "date": "2026-11-26",
+  "machine": {
+    "type": "e2-medium",
+    "shared_vcpus": 2,
+    "visible_memory_mib": 3908,
+    "platform": "Linux-7.0.0-1018-gcp-x86_64-with-glibc2.39"
+  },
+  "model": {
+    "model_id": "small.en",
+    "artifact_revision": "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
+    "library_version": "1.0.3",
+    "compute_type": "int8",
+    "beam_size": 1,
+    "temperature": 0.0,
+    "vad_enabled": true,
+    "language": "en",
+    "cpu_threads": null
+  },
+  "unique_recordings": 3,
+  "object_files": 6,
+  "rows": [
+    {"clip": 1, "audio_seconds": 17.629, "wall_seconds": 11.939, "decode_seconds": 10.641, "cold_start": true},
+    {"clip": 2, "audio_seconds": 8.759, "wall_seconds": 12.293, "decode_seconds": 12.205, "cold_start": false},
+    {"clip": 3, "audio_seconds": 21.119, "wall_seconds": 10.427, "decode_seconds": 10.208, "cold_start": false}
+  ],
+  "total_audio_seconds": 47.507,
+  "total_wall_seconds": 34.659,
+  "real_time_factor": 0.7296,
+  "speech_service_memory_peak_bytes": 1230495744,
+  "accuracy_pilot": {
+    "reference_provenance": "Existing user-edited transcript; not independently annotated",
+    "clips": 1,
+    "audio_seconds": 17.629,
+    "wall_seconds": 9.712,
+    "decode_seconds": 8.667,
+    "wer": 0.04,
+    "name_fidelity": null,
+    "date_fidelity": null,
+    "negation_fidelity": null,
+    "normalization": "NFKC, casefold, strip punctuation except ' and -, collapse whitespace"
+  },
+  "limitations": ["Short recordings only", "No five-minute recording", "No concurrent load", "Before resource caps and CPU thread override", "One user-correction reference, no independently annotated set"]
+}

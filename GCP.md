@@ -11,6 +11,13 @@ details live in `ops/gcp/README.md`; this is the operator's guide.
   `metis-api`, `metis-worker`, `metis-speech` (faster-whisper). The API,
   worker, and speech service bind to loopback; only Caddy is public.
 - **Health endpoint:** `https://<ip-with-dashes>.sslip.io/v1/health`
+- **Runtime mode:** `METIS_MODE=local` (SQLite, filesystem objects) with the
+  real faster-whisper transcriber, but **fixture inference and a fixture
+  embedder** (`semantic_search: keyword_only`). Extraction and planning output
+  from this server is fixture output, not real model output. Check
+  `/v1/health` → `adapters` to confirm what is live.
+- **Deploys come from `main` only.** `ops/gcp/deploy.sh` refuses any other
+  branch. `/v1/health` → `build` is the deployed commit.
 - **One VM is not high availability.** If it dies, Metis is down.
 - **`automaticRestart` is disabled.** If the VM itself crashes it stays off
   until the next scheduled start or a manual start. (systemd still restarts
@@ -53,14 +60,16 @@ All scripts are idempotent: safe to re-run.
 
 Times are `America/New_York`:
 
-| Job                  | Schedule      | Effect |
-| -------------------- | ------------- | ------ |
-| `metis-stop-morning` | 04:00 Mon–Sat | stop   |
-| `metis-stop-sunday`  | 00:00 Sun     | stop   |
-| `metis-start-day`    | 11:30 Mon–Sat | start  |
+| Job                           | Schedule      | Effect                                  |
+| ----------------------------- | ------------- | --------------------------------------- |
+| `metis-mute-planned-downtime` | 03:55 daily   | mute the uptime-failure alert           |
+| `metis-stop-morning`          | 04:00 daily   | stop                                    |
+| `metis-start-day`             | 11:30 daily   | start                                   |
+| `metis-unmute-after-start`    | 11:35 daily   | re-enable the uptime-failure alert      |
 
-The VM is **off all Sunday and 04:00–11:30 every other day**. Uptime failures
-and empty charts in those windows are expected, not incidents.
+The VM is **off 04:00–11:30 every day, including Sunday**, and on the rest of
+the time. Uptime failures and empty charts in that window are expected, not
+incidents; the "API unavailable" alert is muted for it automatically.
 
 ## The dashboard: what to watch
 
@@ -140,8 +149,8 @@ incidents show up in the console but nobody is told. Run
 every policy. To add Slack, SMS, or PagerDuty: Monitoring → Alerting → **Edit
 notification channels**, then attach the channel to each policy.
 
-Expect "API unavailable" alerts during the scheduled off-hours. Snooze them in
-the console (Alerting → **Snooze**) if they get noisy.
+The "API unavailable" alert is muted during the 04:00–11:30 window by the
+scheduler jobs above, so an alert outside it is real.
 
 ## Reading logs
 
@@ -237,8 +246,7 @@ dmesg -T | grep -i oom                          # kernel OOM kills
 
 ## When the server crashes: playbook
 
-1. **Is this the schedule?** Sunday, or 04:00–11:30 on another day, means it's
-   off on purpose.
+1. **Is this the schedule?** 04:00–11:30 on any day means it's off on purpose.
 2. **Dashboard:** note when the uptime check started failing and what memory,
    disk, and errors did just before.
 3. **Logs Explorer:** set the time range to a few minutes before the failure

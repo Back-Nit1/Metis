@@ -44,6 +44,9 @@ your task needs** — do not load the whole spec into every turn.
    the fixture transcriber and the fixture inference client.
 10. **Path ownership.** Stay inside your assigned paths (see
     `docs/spec/development.md` table and `.claude/agents/`). Never `git add -A`.
+11. **Deploy only from `main`.** Anything running on a server (GCP VM,
+    Vercel) must be a commit on `main`. Merge feature branches first;
+    `ops/gcp/deploy.sh` refuses any other branch.
 
 ## Layout
 

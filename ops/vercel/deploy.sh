@@ -12,6 +12,11 @@
 #   METIS_SESSION_SECRET       openssl rand -base64 48   (rotate to sign everyone out)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+branch="$(git symbolic-ref --short -q HEAD || true)"
+if [ "$branch" != "main" ]; then
+  echo "refusing to deploy: on '${branch:-detached HEAD}', not main. Merge to main first." >&2
+  exit 1
+fi
 PROJECT="${PROJECT:?set PROJECT to the GCP project id}"
 IP="$(gcloud --project "$PROJECT" compute addresses describe metis --region "${REGION:-us-central1}" --format='value(address)')"
 echo "METIS_API_ORIGIN must be https://${IP//./-}.sslip.io"

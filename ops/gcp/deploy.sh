@@ -14,6 +14,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+# Only main is deployable: what runs on the VM must be what main says.
+branch="$(git symbolic-ref --short -q HEAD || true)"
+if [ "$branch" != "main" ]; then
+  echo "refusing to deploy: on '${branch:-detached HEAD}', not main. Merge to main first." >&2
+  exit 1
+fi
+
 PROJECT="${PROJECT:?set PROJECT to the GCP project id}"
 REGION="${REGION:-us-central1}"
 ZONE="${ZONE:-$REGION-a}"

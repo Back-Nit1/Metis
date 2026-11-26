@@ -1,0 +1,130 @@
+{
+  "measurement": "real_decoder",
+  "machine": {
+    "platform": "Linux-7.0.0-1018-gcp-x86_64-with-glibc2.39",
+    "python": "3.12.3"
+  },
+  "unique_recordings": 3,
+  "passes": 2,
+  "wall_p50_seconds": 9.697500000000002,
+  "wall_max_seconds": 11.4366,
+  "real_time_factor": 0.5948,
+  "rows": [
+    {
+      "clip": 1,
+      "pass": 1,
+      "wall_seconds": 11.4366,
+      "audio_seconds": 17.629,
+      "decode_seconds": 10.197,
+      "cold_start": true,
+      "model": {
+        "model_id": "small.en",
+        "artifact_revision": "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
+        "library_version": "1.0.3",
+        "compute_type": "int8",
+        "beam_size": 1,
+        "temperature": 0.0,
+        "vad_enabled": true,
+        "language": "en",
+        "adapter_mode": "local"
+      }
+    },
+    {
+      "clip": 2,
+      "pass": 1,
+      "wall_seconds": 7.7972,
+      "audio_seconds": 8.759,
+      "decode_seconds": 7.701,
+      "cold_start": false,
+      "model": {
+        "model_id": "small.en",
+        "artifact_revision": "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
+        "library_version": "1.0.3",
+        "compute_type": "int8",
+        "beam_size": 1,
+        "temperature": 0.0,
+        "vad_enabled": true,
+        "language": "en",
+        "adapter_mode": "local"
+      }
+    },
+    {
+      "clip": 3,
+      "pass": 1,
+      "wall_seconds": 10.3319,
+      "audio_seconds": 21.119,
+      "decode_seconds": 10.13,
+      "cold_start": false,
+      "model": {
+        "model_id": "small.en",
+        "artifact_revision": "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
+        "library_version": "1.0.3",
+        "compute_type": "int8",
+        "beam_size": 1,
+        "temperature": 0.0,
+        "vad_enabled": true,
+        "language": "en",
+        "adapter_mode": "local"
+      }
+    },
+    {
+      "clip": 1,
+      "pass": 2,
+      "wall_seconds": 9.4463,
+      "audio_seconds": 17.629,
+      "decode_seconds": 8.372,
+      "cold_start": false,
+      "model": {
+        "model_id": "small.en",
+        "artifact_revision": "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
+        "library_version": "1.0.3",
+        "compute_type": "int8",
+        "beam_size": 1,
+        "temperature": 0.0,
+        "vad_enabled": true,
+        "language": "en",
+        "adapter_mode": "local"
+      }
+    },
+    {
+      "clip": 2,
+      "pass": 2,
+      "wall_seconds": 7.5509,
+      "audio_seconds": 8.759,
+      "decode_seconds": 7.469,
+      "cold_start": false,
+      "model": {
+        "model_id": "small.en",
+        "artifact_revision": "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
+        "library_version": "1.0.3",
+        "compute_type": "int8",
+        "beam_size": 1,
+        "temperature": 0.0,
+        "vad_enabled": true,
+        "language": "en",
+        "adapter_mode": "local"
+      }
+    },
+    {
+      "clip": 3,
+      "pass": 2,
+      "wall_seconds": 9.9487,
+      "audio_seconds": 21.119,
+      "decode_seconds": 9.748,
+      "cold_start": false,
+      "model": {
+        "model_id": "small.en",
+        "artifact_revision": "d1d751a5f8271d482d14ca55d9e2deeebbae577f",
+        "library_version": "1.0.3",
+        "compute_type": "int8",
+        "beam_size": 1,
+        "temperature": 0.0,
+        "vad_enabled": true,
+        "language": "en",
+        "adapter_mode": "local"
+      }
+    }
+  ],
+  "accuracy": null,
+  "accuracy_note": "Not measured: no trusted human reference transcripts supplied."
+}

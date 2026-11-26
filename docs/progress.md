@@ -284,3 +284,31 @@ agent base`. Every gate in the table above was run at it. This line was added
 in the immediately following doc-only commit, because a commit cannot contain
 its own hash — branch from `cec682d`, not from the commit that records it,
 although either tree is byte-identical outside this file.
+
+## Availability and recovery — 2026-11-26
+
+Coordinator integrated the explicitly requested speech/worker subagent in an
+isolated worktree; preserved the concurrently active agent's API, contracts,
+desktop, and browser-test work. Core commits: `56cdf84` timer claim lanes,
+`748a2cc` backups/late labels/Caddy, `47bad47` worker/runtime isolation,
+`5fe88a0` real-recording baseline, `01f32a1` deployment wiring, `9b41b2b`
+benchmark fixture guard. Contract version remains 1; no new entity schema.
+
+Applied runtime `01f32a1` from main to the existing GCP VM; published reminder
+labels to Vercel. Removed the dev daily shutdown/alert-muting jobs, enabled
+Compute automatic restart, attached daily disk snapshots, configured private
+SQLite Cloud Storage backups, shared the warm speech service, added per-service
+memory limits and 2 GiB swap, and separated timer and long-poll processes.
+
+Verified live backup upload → cloud download → isolated local restore of both
+SQLite databases and install identity; both integrity checks passed (37 main
+records). Full-disk snapshot READY, but boot recovery was not tested. Verified
+70 concurrent long-polls cannot block ordinary API reads. Python regressions,
+134 web tests, build, Ruff, and production mypy passed. Real speech benchmark
+now has measured speed and a clearly limited user-correction accuracy pilot.
+
+Evidence and recovery limits:
+[`ops/gcp/RESTORE-DRILL-2026-11-26.md`](../ops/gcp/RESTORE-DRILL-2026-11-26.md).
+Operational procedures: [`ops/gcp/README.md`](../ops/gcp/README.md). The manual
+initial snapshot needs review/deletion after 14 days; scheduled snapshots have
+retention. Daily recovery can lose about 24 hours of new data; this is not HA.

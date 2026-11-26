@@ -69,6 +69,7 @@ TIMER_EVENT_TYPES: frozenset[str] = frozenset(
     {
         EventType.REMINDER_SCHEDULE_SYNC,
         EventType.REMINDER_DUE,
+        EventType.REMINDER_CANCEL_SYNC,
         EventType.NOTIFICATION_DISPATCH,
         EventType.DAILY_PLAN_SCHEDULE_SYNC,
     }

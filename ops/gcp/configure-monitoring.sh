@@ -49,7 +49,7 @@ if [ -z "$uptime_name" ]; then
 fi
 uptime_id="${uptime_name##*/}"
 
-error_filter='resource.type="gce_instance" AND (jsonPayload._SYSTEMD_UNIT="metis-api.service" OR jsonPayload._SYSTEMD_UNIT="metis-worker.service" OR jsonPayload._SYSTEMD_UNIT="metis-speech.service" OR jsonPayload._SYSTEMD_UNIT="caddy.service") AND (severity>=ERROR OR jsonPayload.MESSAGE=~"(?i)(traceback|exception|failed)" OR textPayload=~"(?i)(traceback|exception|failed)")'
+error_filter='resource.type="gce_instance" AND (jsonPayload._SYSTEMD_UNIT="metis-api.service" OR jsonPayload._SYSTEMD_UNIT="metis-worker.service" OR jsonPayload._SYSTEMD_UNIT="metis-speech.service" OR jsonPayload._SYSTEMD_UNIT="caddy.service" OR jsonPayload._SYSTEMD_UNIT="metis-timers.service" OR jsonPayload._SYSTEMD_UNIT="metis-changes.service" OR jsonPayload._SYSTEMD_UNIT="metis-backup.service") AND (severity>=ERROR OR jsonPayload.MESSAGE=~"(?i)(traceback|exception|failed)" OR textPayload=~"(?i)(traceback|exception|failed)")'
 if g logging metrics describe metis_service_errors >/dev/null 2>&1; then
   g logging metrics update metis_service_errors \
     --description="Metis systemd service failures and error logs" \

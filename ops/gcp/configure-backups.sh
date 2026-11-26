@@ -18,7 +18,7 @@ if ! g storage buckets describe "gs://$BUCKET" >/dev/null 2>&1; then
   g storage buckets create "gs://$BUCKET" --location="$REGION" \
     --uniform-bucket-level-access --public-access-prevention
 fi
-bucket_project="$(g storage buckets describe "gs://$BUCKET" --format='value(project_number)')"
+bucket_project="$(g storage buckets describe "gs://$BUCKET" --raw --format='value(projectNumber)')"
 if [ "$bucket_project" != "$project_number" ]; then
   echo 'backup bucket belongs to another project; refusing to modify it' >&2
   exit 1
@@ -37,7 +37,7 @@ verb=create
 if g compute resource-policies describe "$POLICY" --region="$REGION" >/dev/null 2>&1; then
   verb=update
 fi
-# Compute chooses a start within the 08:00 UTC hour; these are crash-consistent
+# Compute chooses a start in its daily window beginning 08:00 UTC; these are crash-consistent
 # whole-disk snapshots. The independent SQLite archive is application-consistent.
 args=(compute resource-policies "$verb" snapshot-schedule "$POLICY"
   --region="$REGION" --daily-schedule --start-time=08:00

@@ -8,7 +8,8 @@ details live in `ops/gcp/README.md`; this is the operator's guide.
 - **Project:** `metis-dev-856337`
 - **VM:** `metis`, an `e2-medium` (2 shared vCPUs, 4 GB RAM) in `us-central1-a`
 - **Services on the VM (systemd):** `caddy` (public TLS edge),
-  `metis-api`, `metis-worker`, `metis-speech` (faster-whisper). The API,
+  `metis-api`, `metis-changes` (long-polls), `metis-worker` (jobs),
+  `metis-timers` (reminders), `metis-speech` (faster-whisper), and `metis-web`. The API,
   worker, and speech service bind to loopback; only Caddy is public.
 - **Health endpoint:** `https://<ip-with-dashes>.sslip.io/v1/health`
 - **Runtime mode:** `METIS_MODE=local` (SQLite, filesystem objects) with the
@@ -19,9 +20,10 @@ details live in `ops/gcp/README.md`; this is the operator's guide.
 - **Deploys come from `main` only.** `ops/gcp/deploy.sh` refuses any other
   branch. `/v1/health` → `build` is the deployed commit.
 - **One VM is not high availability.** If it dies, Metis is down.
-- **`automaticRestart` is disabled.** If the VM itself crashes it stays off
-  until the next scheduled start or a manual start. (systemd still restarts
-  individual crashed services.)
+- **Continuous availability:** automatic restart is enabled and the former
+  daily shutdown/alert-muting jobs are removed. Systemd restarts failed services.
+- **Backups:** daily verified SQLite archives plus whole-disk snapshots; see
+  [backup and recovery procedures](ops/gcp/README.md#backups-and-recovery).
 
 ## Console links
 
@@ -43,7 +45,7 @@ PROJECT=metis-dev-856337 ops/gcp/deploy.sh
 # Create/refresh uptime check, alerts, dashboard (+ email alerts)
 NOTIFY_EMAIL=you@example.com PROJECT=metis-dev-856337 ops/gcp/configure-monitoring.sh
 
-# Create/refresh the power schedule
+# Remove the old dev shutdown and enable automatic restart
 PROJECT=metis-dev-856337 ops/gcp/configure-schedule.sh
 
 # Start / stop the VM by hand
@@ -56,20 +58,20 @@ gcloud compute ssh metis --zone us-central1-a --project metis-dev-856337
 
 All scripts are idempotent: safe to re-run.
 
-## Power schedule (cost control)
+## Availability and recovery
 
-Times are `America/New_York`:
+Metis runs continuously. There is no planned daily shutdown window; uptime
+failures at any hour should be investigated. `configure-schedule.sh` removes
+the legacy power/muting jobs and enables Compute automatic restart.
 
-| Job                           | Schedule      | Effect                                  |
-| ----------------------------- | ------------- | --------------------------------------- |
-| `metis-mute-planned-downtime` | 03:55 daily   | mute the uptime-failure alert           |
-| `metis-stop-morning`          | 04:00 daily   | stop                                    |
-| `metis-start-day`             | 11:30 daily   | start                                   |
-| `metis-unmute-after-start`    | 11:35 daily   | re-enable the uptime-failure alert      |
+The timers-only reminder service runs every two seconds independently of
+transcription. Late notifications say how late they were; the web app labels
+undelivered reminders as due/overdue. Whisper is shared by Flow and uploads,
+services have memory limits, and the VM has 2 GiB disk swap.
 
-The VM is **off 04:00–11:30 every day, including Sunday**, and on the rest of
-the time. Uptime failures and empty charts in that window are expected, not
-incidents; the "API unavailable" alert is muted for it automatically.
+Provision daily backups with `PROJECT=metis-dev-856337
+ops/gcp/configure-backups.sh`, then deploy main. Recovery commands and retention
+are in [the operations runbook](ops/gcp/README.md#backups-and-recovery).
 
 ## The dashboard: what to watch
 
@@ -83,7 +85,7 @@ what a real user experiences.
 - **Normal:** flat line at 1.0 (100% passing).
 - **Partial dip:** some regions failing, likely a network blip.
 - **Drop to 0:** server is down.
-- Outside the scheduled off-hours, any drop is real.
+- Any drop should be investigated; no scheduled off-hours remain.
 
 ### 2. VM memory percent used: the most likely killer
 
@@ -149,8 +151,7 @@ incidents show up in the console but nobody is told. Run
 every policy. To add Slack, SMS, or PagerDuty: Monitoring → Alerting → **Edit
 notification channels**, then attach the channel to each policy.
 
-The "API unavailable" alert is muted during the 04:00–11:30 window by the
-scheduler jobs above, so an alert outside it is real.
+The "API unavailable" alert remains enabled around the clock.
 
 ## Reading logs
 
@@ -246,7 +247,7 @@ dmesg -T | grep -i oom                          # kernel OOM kills
 
 ## When the server crashes: playbook
 
-1. **Is this the schedule?** 04:00–11:30 on any day means it's off on purpose.
+1. **Check VM status:** no daily shutdown schedule should remain.
 2. **Dashboard:** note when the uptime check started failing and what memory,
    disk, and errors did just before.
 3. **Logs Explorer:** set the time range to a few minutes before the failure
@@ -256,7 +257,7 @@ dmesg -T | grep -i oom                          # kernel OOM kills
    the kernel killing whisper for memory.
 5. **Logs stop entirely at that moment?** The VM itself went down. Check
    Compute Engine → VM → **Logs** / **Observability** for stop events. Start
-   it manually if needed; it won't restart on its own.
+   it manually if needed; automatic restart covers host failures, not deliberate stops.
 6. **Services up but broken?** SSH in, run `systemctl status <service>` and
    `journalctl -u <service> -n 200`.
 7. **After a fix:** redeploy with `ops/gcp/deploy.sh`. It verifies

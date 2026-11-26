@@ -47,3 +47,13 @@ def test_real_recording_cli_rejects_fixture_decoder(tmp_path, monkeypatch):
 def test_empty_audio_dir_is_not_a_successful_benchmark(tmp_path):
     with pytest.raises(ValueError, match="no supported recordings"):
         benchmark_recordings(Path(tmp_path), Decoder())
+
+
+def test_remote_fixture_output_is_never_labeled_real_decoder(tmp_path):
+    class FixtureEndpoint:
+        def transcribe(self, audio, **kwargs):
+            return "fixture echo", [], {"adapter_mode": "fixture"}
+
+    (tmp_path / "clip.webm").write_bytes(b"audio")
+    with pytest.raises(ValueError, match="fixture output"):
+        benchmark_recordings(tmp_path, FixtureEndpoint())

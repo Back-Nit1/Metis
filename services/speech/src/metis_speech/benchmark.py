@@ -56,6 +56,12 @@ def benchmark_recordings(
     expected = {str(item["id"]) for item in references or []}
     if references is not None and expected != {path.stem for path in files}:
         raise ValueError("reference IDs must exactly match the unique recording filenames")
+    anonymous_ids = {path.stem: f"clip_{index + 1}" for index, path in enumerate(files)}
+    safe_references = (
+        [{**item, "id": anonymous_ids[str(item["id"])]} for item in references]
+        if references is not None
+        else None
+    )
     hypotheses: dict[str, str] = {}
     rows: list[dict[str, Any]] = []
     for pass_index in range(passes):
@@ -64,7 +70,9 @@ def benchmark_recordings(
             started = time.monotonic()
             text, _, metadata = transcriber.transcribe(audio, max_seconds=settings().limits.max_audio_seconds)
             wall = time.monotonic() - started
-            hypotheses[path.stem] = text
+            if metadata.get("adapter_mode") == "fixture":
+                raise ValueError("speech endpoint returned fixture output; no real benchmark was measured")
+            hypotheses[anonymous_ids[path.stem]] = text
             rows.append(
                 {
                     "clip": index + 1,
@@ -88,7 +96,7 @@ def benchmark_recordings(
         "wall_max_seconds": max(wall_times),
         "real_time_factor": round(sum(wall_times) / audio_seconds, 4) if audio_seconds else None,
         "rows": rows,
-        "accuracy": evaluate(references, hypotheses) if references is not None else None,
+        "accuracy": evaluate(safe_references, hypotheses) if safe_references is not None else None,
         "accuracy_note": "Human reference transcripts supplied."
         if references is not None
         else "Not measured: no trusted human reference transcripts supplied.",

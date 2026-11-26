@@ -64,6 +64,16 @@ INGEST_EVENT_TYPES: frozenset[str] = frozenset(
     }
 )
 
+#: Clock/scheduler/delivery work isolated from blocking transcription and inference.
+TIMER_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        EventType.REMINDER_SCHEDULE_SYNC,
+        EventType.REMINDER_DUE,
+        EventType.NOTIFICATION_DISPATCH,
+        EventType.DAILY_PLAN_SCHEDULE_SYNC,
+    }
+)
+
 
 ALL_EVENT_TYPES: frozenset[str] = frozenset(
     v for k, v in vars(EventType).items() if not k.startswith("_") and isinstance(v, str)

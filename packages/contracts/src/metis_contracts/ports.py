@@ -193,7 +193,7 @@ class StateStore(Protocol):
         owner: str,
         limit: int,
         lease_seconds: int,
-        lane: Literal["all", "interactive", "ingest"] = "all",
+        lane: Literal["all", "interactive", "ingest", "timers", "jobs"] = "all",
         max_in_flight: int | None = None,
     ) -> list[OutboxEvent]: ...
 

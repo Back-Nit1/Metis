@@ -27,6 +27,7 @@ from typing import Any, Literal
 
 from metis_contracts import (
     INGEST_EVENT_TYPES,
+    TIMER_EVENT_TYPES,
     AdapterMode,
     ErrorCode,
     Event,
@@ -60,14 +61,20 @@ PLANNING_RELEVANT_KINDS = frozenset({"task", "event", "availability", "preferenc
 #: Kinds that never reach the change feed: queue and ledger plumbing, not user data.
 CHANGE_FEED_SKIP_KINDS = frozenset({"outbox", "budget_reservation", "usage_day"})
 
-Lane = Literal["all", "interactive", "ingest"]
+Lane = Literal["all", "interactive", "ingest", "timers", "jobs"]
 _INGEST_TYPES = tuple(sorted(INGEST_EVENT_TYPES))
 _INGEST_MARKS = ",".join("?" for _ in _INGEST_TYPES)
+_TIMER_TYPES = tuple(sorted(TIMER_EVENT_TYPES))
+_TIMER_MARKS = ",".join("?" for _ in _TIMER_TYPES)
 #: SQL `CASE` labelling an outbox row's lane; params are ``_INGEST_TYPES``.
 _LANE_SQL = f"CASE WHEN event_type IN ({_INGEST_MARKS}) THEN 'ingest' ELSE 'interactive' END"
 
 
 def _lane_filter(lane: Lane) -> tuple[str, tuple[str, ...]]:
+    if lane == "timers":
+        return f"AND event_type IN ({_TIMER_MARKS})", _TIMER_TYPES
+    if lane == "jobs":
+        return f"AND event_type NOT IN ({_TIMER_MARKS})", _TIMER_TYPES
     if lane == "ingest":
         return f"AND event_type IN ({_INGEST_MARKS})", _INGEST_TYPES
     if lane == "interactive":

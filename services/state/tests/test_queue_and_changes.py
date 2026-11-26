@@ -151,3 +151,17 @@ def _obx() -> dict:
         "idempotency_key": "x",
         "available_at": T0,
     }
+
+
+def test_timer_claims_bypass_older_transcription_backlog(store):
+    from metis_contracts import TIMER_EVENT_TYPES
+
+    for i in range(30):
+        enqueue(store, f"audio{i}", EventType.CAPTURE_COMPLETED)
+    for i, event_type in enumerate(sorted(TIMER_EVENT_TYPES)):
+        enqueue(store, f"timer{i}", event_type)
+    timers = store.claim_outbox(owner="timers", limit=25, lease_seconds=60, lane="timers")
+    assert {event.event_type for event in timers} == TIMER_EVENT_TYPES
+    jobs = store.claim_outbox(owner="jobs", limit=50, lease_seconds=60, lane="jobs")
+    assert len(jobs) == 30
+    assert all(event.event_type == EventType.CAPTURE_COMPLETED for event in jobs)

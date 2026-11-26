@@ -195,7 +195,7 @@ class OutboxDispatcher:
         registry: HandlerRegistry,
         context: DispatchContext,
         *,
-        lane: Literal["all", "interactive", "ingest"] = "all",
+        lane: Literal["all", "interactive", "ingest", "jobs", "timers"] = "all",
     ) -> None:
         self._registry = registry
         self._context = context

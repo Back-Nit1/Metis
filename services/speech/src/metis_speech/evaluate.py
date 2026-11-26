@@ -218,7 +218,38 @@ def main(argv: list[str] | None = None) -> int:
         help="JSON mapping {item_id: transcript}. Omitted: the fixture transcriber is used.",
     )
     parser.add_argument("--json", action="store_true", help="print the raw report")
+    parser.add_argument(
+        "--audio-dir", help="decode unique real recording files recursively (no fixture echo)"
+    )
+    parser.add_argument("--speed-only", action="store_true", help="measure speed without claiming accuracy")
+    parser.add_argument("--passes", type=int, default=1, help="real decode passes; >=2 compares warm reuse")
+    parser.add_argument("--report", help="write real-recording JSON report; never contains transcript text")
     args = parser.parse_args(argv)
+    if args.audio_dir:
+        from .benchmark import benchmark_recordings
+        from .transcriber import build_transcriber
+
+        if args.hypotheses:
+            parser.error("--audio-dir and --hypotheses are mutually exclusive")
+        references = None if args.speed_only else load_set(Path(args.fixtures) / "evaluation_set.json")
+        transcriber = build_transcriber()
+        if getattr(transcriber, "mode", None) == "fixture":
+            parser.error(
+                "real recordings require a real decoder; set METIS_SPEECH_ENGINE=remote or faster_whisper"
+            )
+        try:
+            result = benchmark_recordings(
+                Path(args.audio_dir), transcriber, references=references, passes=args.passes
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        raw_report = json.dumps(result, indent=2)
+        if args.report:
+            Path(args.report).write_text(raw_report + "\n")
+        print(raw_report)
+        return 0
+    if args.speed_only or args.report or args.passes != 1:
+        parser.error("--speed-only, --report and --passes require --audio-dir")
 
     fixtures = Path(args.fixtures)
     eval_file = fixtures / "evaluation_set.json"

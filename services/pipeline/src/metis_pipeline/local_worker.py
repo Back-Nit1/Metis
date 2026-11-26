@@ -4,7 +4,7 @@ In the cloud these are separate things — a Lambda consumes SQS for the outbox,
 and EventBridge Scheduler invokes the due handler directly. Locally the worker
 polls both so `make dev` needs no AWS account.
 
-    python -m metis_pipeline.local_worker [--once] [--interval 2] [--processes N]
+    python -m metis_pipeline.local_worker [--once] [--interval 2] [--processes N] [--mode all|jobs|timers]
 
 ``--processes 1`` is one loop over every lane. ``N >= 2`` (D9) supervises N
 spawned children, each with its own SQLite connection: child 0 runs the
@@ -12,6 +12,11 @@ interactive lane plus the timers, children 1..N-1 run the ingest lane under the
 global ``ingest_max_in_flight`` cap, so a 10k-file import cannot starve
 reminders. The parent only supervises; it emits the readiness record once all
 children are wired, forwards stop, and joins them.
+
+For a small always-on VM run two single-process services: ``--mode jobs``
+claims non-timer work; ``--mode timers`` claims only scheduler/delivery work
+and never builds speech, inference or retrieval adapters. Timers therefore
+keep running while a recording is being transcribed.
 """
 
 from __future__ import annotations
@@ -43,7 +48,8 @@ CHILD_READY_TIMEOUT_SECONDS = 120.0
 #: How long a child gets to finish its batch after stop, before terminate().
 CHILD_JOIN_TIMEOUT_SECONDS = 30.0
 
-Lane = Literal["all", "interactive", "ingest"]
+Lane = Literal["all", "interactive", "ingest", "jobs", "timers"]
+Mode = Literal["all", "jobs", "timers"]
 
 
 def request_stop() -> None:
@@ -62,7 +68,7 @@ def _configure_logging() -> None:
     logging.basicConfig(level=settings().log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 
-def build_context() -> Any:
+def build_context(*, timers_only: bool = False) -> Any:
     """Wire the adapters for the configured mode. Fixtures stay clearly labelled."""
     from metis_state import build_source_store, build_state_store
 
@@ -75,19 +81,20 @@ def build_context() -> Any:
         state_store=state_store,
         source_store=build_source_store(clock=clock),
         clock=clock,
-        inference=build_inference_client(),
+        inference=None if timers_only else build_inference_client(),
     )
 
-    from .transcription import build_asr_launcher
+    if not timers_only:
+        from .transcription import build_asr_launcher
 
-    context.asr_launcher = build_asr_launcher()  # None outside cloud mode
+        context.asr_launcher = build_asr_launcher()  # None outside cloud mode
 
-    try:
-        from metis_speech import build_transcriber
+        try:
+            from metis_speech import build_transcriber
 
-        context.transcriber = build_transcriber()
-    except ImportError:
-        log.warning("metis_speech is not installed; audio captures cannot be transcribed")
+            context.transcriber = build_transcriber()
+        except ImportError:
+            log.warning("metis_speech is not installed; audio captures cannot be transcribed")
 
     try:
         from metis_scheduler import build_notification_transports, build_schedule_store
@@ -97,18 +104,19 @@ def build_context() -> Any:
     except ImportError:
         log.warning("metis_scheduler is not installed; reminders will not be dispatched")
 
-    try:
-        from metis_retrieval import build_embedder, build_memory_store
+    if not timers_only:
+        try:
+            from metis_retrieval import build_embedder, build_memory_store
 
-        context.memory_store = build_memory_store()
-        context.embedder = build_embedder()
-    except ImportError:
-        log.warning("metis_retrieval is not installed; semantic indexing is disabled")
+            context.memory_store = build_memory_store()
+            context.embedder = build_embedder()
+        except ImportError:
+            log.warning("metis_retrieval is not installed; semantic indexing is disabled")
 
     return context
 
 
-def build_registry() -> Any:
+def build_registry(*, timers_only: bool = False) -> Any:
     """Merge every service's handlers into one registry.
 
     Each service owns its own handlers; the worker only composes them, so two
@@ -118,7 +126,8 @@ def build_registry() -> Any:
     from .handlers import registry as pipeline_registry
 
     registry = HandlerRegistry()
-    registry.merge(pipeline_registry)
+    if not timers_only:
+        registry.merge(pipeline_registry)
 
     try:
         from metis_scheduler.handlers import registry as scheduler_registry
@@ -126,6 +135,9 @@ def build_registry() -> Any:
         registry.merge(scheduler_registry)
     except ImportError:
         pass
+
+    if timers_only:
+        return registry
 
     try:
         from metis_retrieval.handlers import registry as retrieval_registry
@@ -166,7 +178,6 @@ def _loop(
 ) -> int:
     idle_cycles = 0
     while True:
-        result = dispatcher.run_once()
         due = (
             _fire_due_reminders(context)
             + _fire_due_daily_plans(context)
@@ -175,6 +186,7 @@ def _loop(
             if timers
             else 0
         )
+        result = dispatcher.run_once()
         if result.processed or due:
             idle_cycles = 0
             log.info(
@@ -193,7 +205,7 @@ def _loop(
         if once or stopped():
             return 0
         # Back off while idle so a dev loop is not a busy spin.
-        wait(min(interval * (2 if idle_cycles > 5 else 1), 10.0))
+        wait(interval if dispatcher.lane == "timers" else min(interval * (2 if idle_cycles > 5 else 1), 10.0))
         if stopped():
             return 0
 
@@ -201,9 +213,9 @@ def _loop(
 def _wire(lane: Lane) -> tuple[Any, Any]:
     from .dispatcher import OutboxDispatcher
 
-    context = build_context()
+    context = build_context(timers_only=lane == "timers")
     context.worker_id = f"{context.worker_id}:{os.getpid()}:{lane}"
-    registry = build_registry()
+    registry = build_registry(timers_only=lane == "timers")
     dispatcher = OutboxDispatcher(registry, context, lane=lane)
     log.info(
         "worker started mode=%s lane=%s handlers=%d worker_id=%s",
@@ -215,19 +227,21 @@ def _wire(lane: Lane) -> tuple[Any, Any]:
     return context, dispatcher
 
 
-def run(*, once: bool = False, interval: float = 2.0, processes: int = 1) -> int:
+def run(*, once: bool = False, interval: float = 2.0, processes: int = 1, mode: Mode = "all") -> int:
     _configure_logging()
     signal.signal(signal.SIGINT, _request_stop)
     signal.signal(signal.SIGTERM, _request_stop)
-    if processes >= 2 and not once:
+    if mode == "all" and processes >= 2 and not once:
         return _supervise(processes, interval)
 
-    context, dispatcher = _wire("all")
+    if mode != "all" and processes != 1:
+        raise ValueError("jobs/timers mode requires --processes 1")
+    context, dispatcher = _wire(mode)
     emit_readiness()
     return _loop(
         context,
         dispatcher,
-        timers=True,
+        timers=mode != "jobs",
         interval=interval,
         once=once,
         stopped=lambda: _stop,
@@ -400,9 +414,19 @@ def main(argv: list[str] | None = None) -> int:
         help="1 = one loop over all lanes; N>=2 = 1 interactive + N-1 ingest processes "
         "(default: METIS_WORKER_PROCESSES)",
     )
+    parser.add_argument(
+        "--mode",
+        choices=("all", "jobs", "timers"),
+        default="all",
+        help="all = local combined loop; jobs/timers = isolated single-process services",
+    )
     args = parser.parse_args(argv)
     processes = args.processes if args.processes is not None else settings().limits.worker_processes
-    return run(once=args.once, interval=args.interval, processes=max(1, processes))
+    if args.interval <= 0:
+        parser.error("--interval must be positive")
+    if args.mode != "all" and processes != 1:
+        parser.error("--mode jobs/timers requires --processes 1")
+    return run(once=args.once, interval=args.interval, processes=max(1, processes), mode=args.mode)
 
 
 if __name__ == "__main__":

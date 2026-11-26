@@ -275,6 +275,17 @@ def test_idempotent_response_is_replayed(store):
     assert store.recall_idempotent(OTHER, "idem-1") is None
 
 
+def test_duplicate_transactional_idempotency_key_rolls_back_the_entity(store):
+    store.remember_idempotent(USER, "idem-race", {"task_id": "task_winner"})
+
+    with pytest.raises(MetisError) as exc, store.transaction(USER) as tx:
+        tx.put("task", make_task(task_id="task_loser"))
+        tx.remember_idempotent("idem-race", {"task_id": "task_loser"})
+
+    assert exc.value.code is ErrorCode.IDEMPOTENCY_MISMATCH
+    assert store.get(USER, "task", "task_loser") is None
+
+
 def test_only_one_worker_wins_an_occurrence_claim(store):
     key = "rem_1:2026-10-07T13:00:00Z"
     assert store.claim_once(USER, key, "w1") is True

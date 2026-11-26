@@ -26,7 +26,7 @@ AUDIO = {
 
 
 def _audio_capture(client) -> dict:
-    return client.post("/v1/captures", json=AUDIO).json()
+    return client.post("/v1/captures", json=AUDIO, headers={"Idempotency-Key": "audio"}).json()
 
 
 # --- request edge ------------------------------------------------------------ #
@@ -223,9 +223,23 @@ def test_task_cannot_point_at_a_missing_project_or_source(client):
 def test_project_ids_are_plain_tokens(client):
     stamp = "2026-10-05T14:00:00Z"
     base = {"user_id": "u", "created_at": stamp, "updated_at": stamp, "title": "p"}
-    for bad in ("proj_a#b", "proj_../x", "proj_%00"):
-        assert client.post("/v1/projects", json={**base, "id": bad}).status_code == 422
-    assert client.post("/v1/projects", json={**base, "id": "proj_ok_1"}).status_code == 201
+    for index, bad in enumerate(("proj_a#b", "proj_../x", "proj_%00")):
+        assert (
+            client.post(
+                "/v1/projects",
+                json={**base, "id": bad},
+                headers={"Idempotency-Key": f"bad-project-{index}"},
+            ).status_code
+            == 422
+        )
+    assert (
+        client.post(
+            "/v1/projects",
+            json={**base, "id": "proj_ok_1"},
+            headers={"Idempotency-Key": "project-ok"},
+        ).status_code
+        == 201
+    )
 
 
 def test_search_has_its_own_ceiling(client, monkeypatch):

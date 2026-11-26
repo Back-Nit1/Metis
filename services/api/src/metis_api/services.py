@@ -209,8 +209,10 @@ def create_capture(ctx: RequestContext, request: CreateCaptureRequest) -> Create
                     idempotency_key=f"transcript:{stored.id}:1",
                 )
             )
+        result = CreateCaptureResponse(capture_id=stored.id, revision=stored.revision, upload=upload)
+        ctx.remember_in(tx, result.model_dump(mode="json"))
 
-    return CreateCaptureResponse(capture_id=stored.id, revision=stored.revision, upload=upload)
+    return result
 
 
 def _find_by_client_id(ctx: RequestContext, client_capture_id: str) -> SourceArtifact | None:
@@ -274,9 +276,11 @@ def complete_capture(
                 idempotency_key=idempotency_key,
             )
         )
-    return CompleteCaptureResponse(
-        capture_id=stored_source.id, job_id=stored_job.id, revision=stored_source.revision
-    )
+        result = CompleteCaptureResponse(
+            capture_id=stored_source.id, job_id=stored_job.id, revision=stored_source.revision
+        )
+        ctx.remember_in(tx, result.model_dump(mode="json"))
+    return result
 
 
 def patch_transcript(ctx: RequestContext, capture_id: str, request: PatchTranscriptRequest) -> CaptureDetail:
@@ -510,6 +514,7 @@ def attach_capture_to_project(
                     record.model_copy(update={"project_id": project.id}),
                     expected_revision=record.revision,
                 )
+        ctx.remember_in(tx, stored.model_dump(mode="json"))
     return stored
 
 
@@ -606,6 +611,7 @@ def patch_task(ctx: RequestContext, task_id: str, request: PatchTaskRequest) -> 
                 idempotency_key=f"task_changed:{stored.id}:{stored.revision}",
             )
         )
+        ctx.remember_in(tx, stored.model_dump(mode="json"))
     _reconcile_reminders_for_target(ctx, stored, kind="task")
     return stored
 
@@ -666,6 +672,7 @@ def patch_event(ctx: RequestContext, event_id: str, request: PatchEventRequest) 
                 idempotency_key=f"event_changed:{stored.id}:{stored.revision}",
             )
         )
+        ctx.remember_in(tx, stored.model_dump(mode="json"))
     _reconcile_reminders_for_target(ctx, stored, kind="event")
     _invalidate_plans(ctx)
     return stored
@@ -822,4 +829,5 @@ def patch_preferences(ctx: RequestContext, request: PatchPreferencesRequest) -> 
                     available_at=now,
                 )
             )
+        ctx.remember_in(tx, stored.model_dump(mode="json"))
         return stored

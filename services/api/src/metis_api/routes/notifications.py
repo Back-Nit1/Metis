@@ -87,8 +87,8 @@ def create_export(body: CreateExportRequest, ctx: Context) -> JobAccepted:
                 available_at=now,
             )
         )
-    result = JobAccepted(job_id=stored.id, state=stored.state.value)
-    ctx.remember(result.model_dump(mode="json"))
+        result = JobAccepted(job_id=stored.id, state=stored.state.value)
+        ctx.remember_in(tx, result.model_dump(mode="json"))
     return result
 
 

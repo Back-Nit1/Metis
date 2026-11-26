@@ -129,7 +129,7 @@ export function PlanPanel({ today, onChanged }: { today: TodayResponse; onChange
 
   return (
     <section aria-labelledby="h-plan" className="order-5">
-      <SectionHeading id="h-plan" hint={plan ? `revision ${plan.revision ?? 1} · epoch ${plan.planning_epoch}` : "none generated"}>
+      <SectionHeading id="h-plan" hint={plan ? "latest outline" : "none generated"}>
         Plan
       </SectionHeading>
       {error && (
@@ -206,7 +206,7 @@ export function PlanPanel({ today, onChanged }: { today: TodayResponse; onChange
                 {(block.evidence ?? []).length > 0 && (
                   <p className="mt-1.5 flex flex-wrap gap-1.5">
                     {(block.evidence ?? []).map((ev, i) => (
-                      <EvidenceLink key={i} evidence={ev} />
+                      <EvidenceLink key={i} evidence={ev} timezone={tz} />
                     ))}
                   </p>
                 )}

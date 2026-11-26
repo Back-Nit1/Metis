@@ -119,10 +119,15 @@
 html {
   color-scheme: light;
   -webkit-text-size-adjust: 100%;
+  min-width: 0;
+  scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom));
 }
 
 body {
   margin: 0;
+  min-width: 0;
+  min-height: 100dvh;
+  overflow-x: clip;
   background: var(--color-canvas);
   color: var(--color-ink);
   font-family: var(--font-sans);
@@ -130,6 +135,19 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-width: 0;
+  min-height: 100dvh;
+}
+
+.app-header {
+  padding-top: env(safe-area-inset-top);
+}
+
+.app-tab-bar {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.25rem);
 }
 
 button,
@@ -199,6 +217,20 @@ aside :where(a, button):focus-visible {
   .control {
     min-height: 2.75rem;
     font-size: 1rem; /* no iOS zoom on focus */
+  }
+}
+
+@media (max-width: 1023px) and (hover: none) and (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    scroll-margin-bottom: calc(6rem + env(safe-area-inset-bottom));
+  }
+
+  /* A fixed bar can cover the focused editor when a mobile keyboard shrinks
+     the visual viewport. In the focused state it rejoins document flow. */
+  body:has(input:focus, textarea:focus, select:focus) .app-tab-bar {
+    position: static;
   }
 }
 

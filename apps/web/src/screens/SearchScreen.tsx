@@ -23,10 +23,10 @@ export function SearchScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = query.trim();
+  const search = async (value: string) => {
+    const q = value.trim();
     if (!q) return;
+    setQuery(q);
     setBusy(true);
     setError(null);
     try {
@@ -39,14 +39,19 @@ export function SearchScreen() {
     }
   };
 
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void search(query);
+  };
+
   const results = response?.results ?? [];
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title="Search" sub="Ask what you have recorded or imported. Answers come only from your own notes, files and sources." />
-      <form onSubmit={(e) => void submit(e)} role="search" className="flex flex-col gap-3">
+      <form onSubmit={submit} role="search" className="flex flex-col gap-3">
         <div className="flex gap-2">
           <input
-            className={`${inputClass} flex-1`}
+            className={`${inputClass} min-w-0 flex-1`}
             type="search"
             name="q"
             aria-label="Search your notes"
@@ -59,11 +64,29 @@ export function SearchScreen() {
             {busy ? "Searching…" : "Search"}
           </Button>
         </div>
-        <label className="flex min-h-8 items-center gap-2 text-sm text-muted">
+        <label className="flex min-h-11 items-center gap-2 text-sm text-muted md:min-h-8">
           <input type="checkbox" checked={historical} onChange={(e) => setHistorical(e.target.checked)} />
           Include historical and superseded memories
         </label>
       </form>
+      {!response && !busy && !error && (
+        <section aria-labelledby="search-examples" className="rounded-lg border border-line bg-raised p-4">
+          <h2 id="search-examples" className="font-serif text-base font-semibold text-ink">Try asking</h2>
+          <p className="mt-1 text-sm text-muted">Search only uses information you have captured.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {["What did I decide this week?", "What deadlines did I mention?", "What am I waiting on?"].map((example) => (
+              <button
+                key={example}
+                type="button"
+                className="min-h-11 rounded-full border border-line-strong bg-surface px-3 text-left text-sm text-ink hover:bg-accent-soft"
+                onClick={() => void search(example)}
+              >
+                {example}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       {error && <Notice tone="bad" live>{error}</Notice>}
       {busy && <Loading label="Searching" rows={2} />}
       {response && !busy && (
@@ -106,7 +129,7 @@ export function SearchScreen() {
                         {r.kind && <Chip>{r.kind}</Chip>}
                         {ev.validity && ev.validity !== "current" && <Chip>{ev.validity}</Chip>}
                         <span>recorded {timeLabel(ev.recorded_at, timezone)}</span>
-                        <EvidenceLink evidence={ev} label="cited source" />
+                        <EvidenceLink evidence={ev} label="cited source" timezone={timezone} />
                       </p>
                     </li>
                   );

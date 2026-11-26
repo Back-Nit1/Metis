@@ -351,6 +351,7 @@ const NAV: { label: string; href: string; route: SiteRoute | null }[] = [
 export function Site({ route, onOpen }: { route: SiteRoute; onOpen: () => void }) {
   // Each page starts at the top and reveals its own blocks as they scroll in.
   useEffect(() => {
+    document.title = route === "home" ? "Metis" : route === "principles" ? "Principles · Metis" : "Where it runs · Metis";
     if (route !== "home" || !window.location.hash.startsWith("#how")) window.scrollTo({ top: 0 });
     const els = document.querySelectorAll<HTMLElement>("[data-reveal]");
     if (!("IntersectionObserver" in window)) {

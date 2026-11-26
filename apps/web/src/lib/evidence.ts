@@ -4,7 +4,7 @@ import { desktopCommand } from "./desktop";
 
 /** Plan/task refs carry only the source pointer; search and plan citations add the rest. */
 export type EvidenceRef = { source_id: string; source_version: number; span_ref?: string | null } & Partial<
-  Pick<Evidence, "origin" | "title" | "uri" | "excerpt" | "start_char" | "end_char" | "matched" | "chunk_id">
+  Pick<Evidence, "origin" | "title" | "recorded_at" | "uri" | "excerpt" | "start_char" | "end_char" | "matched" | "chunk_id">
 >;
 
 export type Matcher = "semantic" | "keyword";

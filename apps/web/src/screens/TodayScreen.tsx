@@ -79,19 +79,36 @@ export function TodayScreen({ onOpenCapture }: { onOpenCapture: () => void }) {
   const overdue = today.overdue_tasks ?? [];
   const events = [...(today.fixed_events ?? [])].sort((a, b) => (a.starts_at ?? "").localeCompare(b.starts_at ?? ""));
   const date = dateLabel(`${today.local_date}T12:00:00Z`, today.timezone);
+  const hasTasks = open.length + overdue.length > 0;
+  const firstRun = today.planning_epoch === 0 && !hasTasks && events.length === 0 && !today.plan;
+
+  if (firstRun) {
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader title={date} sub={today.timezone} />
+        <Empty
+          icon="mic"
+          title="Capture your first thought"
+          action={
+            <Button variant="primary" onClick={onOpenCapture}>
+              <Icon name="mic" size={16} /> Capture a thought
+            </Button>
+          }
+        >
+          Speak or type whatever is on your mind. You will review any tasks, events, or reminders before they are saved.
+        </Empty>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title={date}
-        sub={
-          <>
-            {today.timezone} <span aria-hidden="true">·</span> planning epoch {today.planning_epoch}
-          </>
-        }
+        sub={today.timezone}
       />
 
-      {(!today.availability_configured || today.inputs_complete === false) && (
+      {hasTasks && (!today.availability_configured || today.inputs_complete === false) && (
         <div className="flex flex-col gap-2">
           {!today.availability_configured && (
             <Notice tone="warn">
@@ -163,7 +180,7 @@ export function TodayScreen({ onOpenCapture }: { onOpenCapture: () => void }) {
                         </p>
                         {task.source_refs?.[0] && (
                           <p className="mt-1.5">
-                            <EvidenceLink evidence={task.source_refs[0]} label={`from ${task.source_refs[0].source_id.slice(0, 12)}…`} />
+                            <EvidenceLink evidence={task.source_refs[0]} recordedAt={task.created_at} timezone={today.timezone} />
                           </p>
                         )}
                       </div>

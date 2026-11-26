@@ -97,7 +97,8 @@ def test_a_replayed_idempotency_key_returns_the_first_response(client):
 def test_an_idempotency_key_reused_for_a_different_request_is_refused_not_dropped(client):
     capture_text(client, idem="same-key")
     reused = capture_text(client, text="a different note", idem="same-key")
-    assert reused.status_code == 422
+    assert reused.status_code == 409
+    assert reused.json()["code"] == "idempotency_mismatch"
     assert "different request" in reused.json()["message"]
 
 
@@ -674,6 +675,7 @@ def test_image_capture_is_declined_plainly_rather_than_faked(client):
     response = client.post(
         "/v1/captures",
         json={"kind": "image", "capture_timezone": NY, "captured_at": T0.isoformat()},
+        headers={"Idempotency-Key": "unsupported-image"},
     )
     assert response.status_code == 415
     assert "not implemented yet" in response.json()["message"]

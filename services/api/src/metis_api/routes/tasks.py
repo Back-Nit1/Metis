@@ -79,6 +79,8 @@ def get_task(task_id: str, ctx: Context) -> Task:
 
 @router.patch("/tasks/{task_id}", response_model=Task)
 def patch_task(task_id: str, body: PatchTaskRequest, ctx: Context) -> Task:
+    if replayed := ctx.replay():
+        return Task.model_validate(replayed)
     return services.patch_task(ctx, task_id, body)
 
 
@@ -125,6 +127,8 @@ def get_event(event_id: str, ctx: Context) -> Event:
 
 @router.patch("/events/{event_id}", response_model=Event)
 def patch_event(event_id: str, body: PatchEventRequest, ctx: Context) -> Event:
+    if replayed := ctx.replay():
+        return Event.model_validate(replayed)
     return services.patch_event(ctx, event_id, body)
 
 
@@ -208,6 +212,8 @@ def get_preferences(ctx: Context) -> Preferences:
 
 @router.patch("/preferences", response_model=Preferences)
 def patch_preferences(body: PatchPreferencesRequest, ctx: Context) -> Preferences:
+    if replayed := ctx.replay():
+        return Preferences.model_validate(replayed)
     return services.patch_preferences(ctx, body)
 
 

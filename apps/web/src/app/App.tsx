@@ -13,7 +13,7 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { connectDesktop, getDesktopState, isDesktop, subscribeDesktop } from "../lib/desktop";
 import { Icon, type IconName } from "../components/Icon";
-import { Notice } from "../components/Card";
+import { Notice, PageHeader } from "../components/Card";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Site, SITE_HASH, type SiteRoute } from "./Site";
 import { CaptureScreen } from "../screens/CaptureScreen";
@@ -32,6 +32,7 @@ import { SessionProvider, useSession } from "./session";
 
 const SURFACES = ["today", "capture", "inbox", "tasks", "projects", "search", "sources", "alerts", "settings"] as const;
 type Surface = (typeof SURFACES)[number];
+type AppRoute = Surface | "not-found";
 
 const LABEL: Record<Surface, string> = {
   today: "Today",
@@ -64,22 +65,31 @@ const RAIL_GROUPS: { label: string; items: Surface[] }[] = [
 
 const BAR: Surface[] = ["today", "inbox", "capture", "tasks", "alerts"];
 
-function surfaceFromHash(): Surface {
-  const value = window.location.hash.replace("#/", "");
-  return (SURFACES as readonly string[]).includes(value) ? (value as Surface) : "today";
+export function appRouteFromHash(hash: string): AppRoute {
+  const value = hash.replace("#/", "");
+  if (value === "notifications") return "alerts";
+  return (SURFACES as readonly string[]).includes(value) ? (value as Surface) : "not-found";
 }
 
 function Shell() {
   const session = useSession();
-  const [surface, setSurface] = useState<Surface>(surfaceFromHash);
+  const [surface, setSurface] = useState<AppRoute>(() => appRouteFromHash(window.location.hash));
   const main = useRef<HTMLElement>(null);
   const shown = useRef(surface);
 
   useEffect(() => {
-    const sync = () => setSurface(surfaceFromHash());
+    const sync = () => {
+      // The skip link targets the main landmark; it is not an app route.
+      if (window.location.hash === "#main") return;
+      setSurface(appRouteFromHash(window.location.hash));
+    };
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
+
+  useEffect(() => {
+    document.title = `${surface === "not-found" ? "Page not found" : LABEL[surface]} · Metis`;
+  }, [surface]);
 
   // After a navigation, move focus to the new surface so keyboard and screen
   // reader users land on it; skip the very first render.
@@ -119,6 +129,7 @@ function Shell() {
       return (
         <button
           type="button"
+          aria-label={LABEL[item]}
           aria-current={active ? "page" : undefined}
           onClick={() => go(item)}
           className={`relative flex min-h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium transition-colors ${
@@ -140,9 +151,10 @@ function Shell() {
     return (
       <button
         type="button"
+        aria-label={LABEL[item]}
         aria-current={active ? "page" : undefined}
         onClick={() => go(item)}
-        className={`flex w-full flex-col items-center justify-end gap-0.5 pb-1.5 pt-1 text-2xs font-medium ${
+        className={`flex min-h-14 w-full flex-col items-center justify-end gap-0.5 pb-1.5 pt-1 text-2xs font-medium ${
           active ? "text-accent" : "text-muted"
         }`}
       >
@@ -181,6 +193,7 @@ function Shell() {
         </div>
         <button
           type="button"
+          aria-label="Capture a thought"
           aria-current={surface === "capture" ? "page" : undefined}
           onClick={() => go("capture")}
           className="flex min-h-12 items-center gap-3 rounded-lg bg-rail-accent px-3.5 text-sm font-semibold text-rail-on-accent shadow-lift transition-[filter] hover:brightness-110 active:brightness-95"
@@ -230,7 +243,7 @@ function Shell() {
 
       <div className="min-w-0">
         {/* small: header */}
-        <header className="sticky top-0 z-20 border-b border-line bg-surface lg:hidden">
+        <header className="app-header sticky top-0 z-20 border-b border-line bg-surface lg:hidden">
           <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-2.5">
             <span className="font-serif text-2xl font-semibold tracking-tight">Metis</span>
             <div className="flex items-center gap-2 text-xs">
@@ -290,13 +303,24 @@ function Shell() {
           {surface === "sources" && <SourcesScreen />}
           {surface === "alerts" && <NotificationsScreen />}
           {surface === "settings" && <SettingsScreen />}
+          {surface === "not-found" && (
+            <div className="flex max-w-xl flex-col gap-5">
+              <PageHeader title="Page not found" sub="That address does not match a Metis screen." />
+              <a
+                href="#/today"
+                className="inline-flex min-h-11 w-fit items-center justify-center rounded-full border border-accent bg-accent px-4.5 text-sm font-semibold text-on-accent"
+              >
+                Go to Today
+              </a>
+            </div>
+          )}
         </main>
       </div>
 
       {/* small: tab bar */}
       <nav
         aria-label="Surfaces"
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
+        className="app-tab-bar fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface lg:hidden"
       >
         <ul className="mx-auto flex max-w-xl items-end">
           {BAR.map((item) => (

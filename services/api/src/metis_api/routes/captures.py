@@ -29,10 +29,10 @@ router = APIRouter(prefix="/v1", tags=["captures"])
 
 @router.post("/captures", response_model=CreateCaptureResponse, status_code=status.HTTP_201_CREATED)
 def create_capture(body: CreateCaptureRequest, ctx: Context) -> CreateCaptureResponse:
+    ctx.require_idempotency_key()
     if replayed := ctx.replay():
         return CreateCaptureResponse.model_validate(replayed)
     result = services.create_capture(ctx, body)
-    ctx.remember(result.model_dump(mode="json"))
     return result
 
 
@@ -43,7 +43,6 @@ def complete_capture(capture_id: str, body: CompleteCaptureRequest, ctx: Context
     if replayed := ctx.replay():
         return CompleteCaptureResponse.model_validate(replayed)
     result = services.complete_capture(ctx, capture_id, body)
-    ctx.remember(result.model_dump(mode="json"))
     return result
 
 
@@ -64,27 +63,36 @@ def get_capture(capture_id: str, ctx: Context) -> CaptureDetail:
 
 @router.patch("/captures/{capture_id}/transcript", response_model=CaptureDetail)
 def patch_transcript(capture_id: str, body: PatchTranscriptRequest, ctx: Context) -> CaptureDetail:
-    return services.patch_transcript(ctx, capture_id, body)
+    if replayed := ctx.replay():
+        return CaptureDetail.model_validate(replayed)
+    result = services.patch_transcript(ctx, capture_id, body)
+    ctx.remember(result.model_dump(mode="json"))
+    return result
 
 
 @router.post("/captures/{capture_id}/project", response_model=SourceArtifact)
 def attach_capture_project(
     capture_id: str, body: AttachCaptureProjectRequest, ctx: Context
 ) -> SourceArtifact:
+    ctx.require_idempotency_key()
     if replayed := ctx.replay():
         return SourceArtifact.model_validate(replayed)
     result = services.attach_capture_to_project(ctx, capture_id, body)
-    ctx.remember(result.model_dump(mode="json"))
     return result
 
 
 @router.delete("/captures/{capture_id}", response_model=DeleteCaptureResponse)
 def delete_capture(capture_id: str, ctx: Context) -> DeleteCaptureResponse:
-    return DeleteCaptureResponse.model_validate(services.delete_capture(ctx, capture_id))
+    if replayed := ctx.replay():
+        return DeleteCaptureResponse.model_validate(replayed)
+    result = DeleteCaptureResponse.model_validate(services.delete_capture(ctx, capture_id))
+    ctx.remember(result.model_dump(mode="json"))
+    return result
 
 
 @router.post("/proposals/{proposal_id}/resolve", response_model=ResolveProposalResponse)
 def resolve(proposal_id: str, body: ResolveProposalRequest, ctx: Context) -> ResolveProposalResponse:
+    ctx.require_idempotency_key()
     if replayed := ctx.replay():
         return ResolveProposalResponse.model_validate(replayed)
     result = resolve_proposal(ctx, proposal_id, body)
@@ -94,6 +102,7 @@ def resolve(proposal_id: str, body: ResolveProposalRequest, ctx: Context) -> Res
 
 @router.post("/proposals/{proposal_id}/target", response_model=ResolveProposalResponse)
 def choose_target(proposal_id: str, body: ChooseTargetRequest, ctx: Context) -> ResolveProposalResponse:
+    ctx.require_idempotency_key()
     if replayed := ctx.replay():
         return ResolveProposalResponse.model_validate(replayed)
     result = choose_status_target(ctx, proposal_id, body)

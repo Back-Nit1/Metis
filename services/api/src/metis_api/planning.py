@@ -9,6 +9,7 @@ preferences and derives the local date and planning epoch server-side.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
@@ -24,9 +25,11 @@ from metis_contracts import (
     resolve_timezone,
 )
 from metis_contracts.entities import Job
-from metis_contracts.ports import Clock, StateStore
+from metis_contracts.ports import Clock, StateStore, Transaction
 
 log = logging.getLogger("metis.api.planning")
+
+RememberPlan = Callable[[Transaction, Plan, Job], None]
 
 #: Provider clocks may fire marginally early; anything further ahead is bogus.
 _FUTURE_SKEW = timedelta(minutes=5)
@@ -43,6 +46,7 @@ def request_plan(
     correlation_id: str,
     idempotency_key: str | None = None,
     plan_id: str | None = None,
+    remember: RememberPlan | None = None,
 ) -> tuple[Plan, Job]:
     """Create one pending plan, its job and the outbox event atomically.
 
@@ -103,6 +107,8 @@ def request_plan(
                 available_at=now,
             )
         )
+        if remember is not None:
+            remember(tx, stored_plan, stored_job)
     return stored_plan, stored_job
 
 

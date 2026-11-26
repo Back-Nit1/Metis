@@ -39,6 +39,7 @@ def create_reminder(body: CreateReminderRequest, ctx: Context) -> Reminder:
     """
     from metis_scheduler import request_reminder
 
+    ctx.require_idempotency_key()
     if replayed := ctx.replay():
         return Reminder.model_validate(replayed)
 
@@ -84,8 +85,8 @@ def create_reminder(body: CreateReminderRequest, ctx: Context) -> Reminder:
         purpose=body.purpose,
         clock=ctx.adapters.clock,
         correlation_id=ctx.correlation_id,
+        remember=lambda tx, stored: ctx.remember_in(tx, stored.model_dump(mode="json")),
     )
-    ctx.remember(reminder.model_dump(mode="json"))
     return reminder
 
 
@@ -113,16 +114,26 @@ def cancel_reminder_route(reminder_id: str, ctx: Context) -> Reminder:
     """
     from metis_scheduler import cancel_reminder
 
+    if replayed := ctx.replay():
+        return Reminder.model_validate(replayed)
     reminder = ctx.state.get(ctx.user_id, "reminder", reminder_id)
     if reminder is None:
         raise MetisError(ErrorCode.NOT_FOUND, f"reminder {reminder_id} not found")
-    return cancel_reminder(ctx.state, reminder, clock=ctx.adapters.clock, correlation_id=ctx.correlation_id)
+    return cancel_reminder(
+        ctx.state,
+        reminder,
+        clock=ctx.adapters.clock,
+        correlation_id=ctx.correlation_id,
+        remember=lambda tx, stored: ctx.remember_in(tx, stored.model_dump(mode="json")),
+    )
 
 
 @router.post("/reminders/{reminder_id}/snooze", response_model=Reminder)
 def snooze(reminder_id: str, body: SnoozeReminderRequest, ctx: Context) -> Reminder:
     from metis_scheduler import snooze_reminder
 
+    if replayed := ctx.replay():
+        return Reminder.model_validate(replayed)
     reminder = ctx.state.get(ctx.user_id, "reminder", reminder_id)
     if reminder is None:
         raise MetisError(ErrorCode.NOT_FOUND, f"reminder {reminder_id} not found")
@@ -138,6 +149,7 @@ def snooze(reminder_id: str, body: SnoozeReminderRequest, ctx: Context) -> Remin
         minutes=body.snooze_minutes,
         clock=ctx.adapters.clock,
         correlation_id=ctx.correlation_id,
+        remember=lambda tx, stored: ctx.remember_in(tx, stored.model_dump(mode="json")),
     )
 
 
@@ -152,6 +164,7 @@ def reschedule(reminder_id: str, body: RescheduleReminderRequest, ctx: Context) 
     """
     from metis_scheduler import retarget_reminder
 
+    ctx.require_idempotency_key()
     if replayed := ctx.replay():
         return Reminder.model_validate(replayed)
     reminder = ctx.require("reminder", reminder_id, Reminder)
@@ -192,8 +205,8 @@ def reschedule(reminder_id: str, body: RescheduleReminderRequest, ctx: Context) 
         target_revision=target.revision,
         clock=ctx.adapters.clock,
         correlation_id=ctx.correlation_id,
+        remember=lambda tx, stored: ctx.remember_in(tx, stored.model_dump(mode="json")),
     )
-    ctx.remember(updated.model_dump(mode="json"))
     return updated
 
 

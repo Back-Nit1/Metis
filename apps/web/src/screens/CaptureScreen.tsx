@@ -116,7 +116,18 @@ export function CaptureScreen() {
     await submitCapture(deps.current, { kind: "text", text: value }, clientCaptureId, progress);
   };
 
+  const sendingNote = useRef(false);
   const submitText = async () => {
+    if (sendingNote.current) return; // a ref, so a double click cannot beat the re-render
+    sendingNote.current = true;
+    try {
+      await submitNote();
+    } finally {
+      sendingNote.current = false;
+    }
+  };
+
+  const submitNote = async () => {
     const value = text.trim();
     if (!value) return;
     reset();

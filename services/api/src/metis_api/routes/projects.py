@@ -32,6 +32,8 @@ def list_projects(
 
 @router.post("/projects", response_model=Project, status_code=status.HTTP_201_CREATED)
 def create_project(body: Project, ctx: Context) -> Project:
+    if replayed := ctx.replay():
+        return Project.model_validate(replayed)
     if body.id and not re.fullmatch(r"[A-Za-z0-9_-]{3,128}", body.id):
         raise MetisError(ErrorCode.VALIDATION_FAILED, "id may contain only letters, digits, '_' and '-'")
     now = ctx.adapters.clock.now()
@@ -45,7 +47,9 @@ def create_project(body: Project, ctx: Context) -> Project:
         }
     )
     with ctx.state.transaction(ctx.user_id) as tx:
-        return tx.put("project", project)
+        stored = tx.put("project", project)
+        ctx.remember_in(tx, stored.model_dump(mode="json"))
+    return stored
 
 
 @router.patch("/projects/{project_id}", response_model=Project)
@@ -65,7 +69,7 @@ def patch_project(project_id: str, body: PatchProjectRequest, ctx: Context) -> P
         patch["aliases"] = list(dict.fromkeys(patch["aliases"]))
     with ctx.state.transaction(ctx.user_id) as tx:
         stored = tx.put("project", project.model_copy(update=patch), expected_revision=project.revision)
-    ctx.remember(stored.model_dump(mode="json"))
+        ctx.remember_in(tx, stored.model_dump(mode="json"))
     return stored
 
 

@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { JobState, type CaptureDetail, type DeleteCaptureResponse, type Job } from "../contracts/metis";
 import { ApiError, api } from "../lib/api";
 import { isCorpus, locate, matchedOf, originLabel, pathFromUri, revealOrCopy, webLink, type EvidenceRef } from "../lib/evidence";
+import { shortDateLabel } from "../lib/format";
 import { Button } from "./Button";
 import { Loading, Notice } from "./Card";
 
@@ -169,23 +170,37 @@ function CorpusBody({ refs, onClose }: { refs: EvidenceRef; onClose: () => void 
   );
 }
 
-function defaultLabel(evidence: EvidenceRef): string {
-  if (!evidence.title) return `source ${evidence.source_id.slice(0, 10)}…`;
+function defaultLabel(evidence: EvidenceRef, date?: string, timezone?: string): string {
+  if (!evidence.title) {
+    const from = isCorpus(evidence) ? originLabel(evidence) : "From your note";
+    return `${from}${date ? ` · ${shortDateLabel(date, timezone)}` : ""}`;
+  }
   const title = evidence.title.length > 40 ? `${evidence.title.slice(0, 39)}…` : evidence.title;
   return `${originLabel(evidence)} · ${title}`;
 }
 
-export function EvidenceLink({ evidence, label }: { evidence: EvidenceRef; label?: string }) {
+export function EvidenceLink({
+  evidence,
+  label,
+  recordedAt,
+  timezone,
+}: {
+  evidence: EvidenceRef;
+  label?: string;
+  recordedAt?: string;
+  timezone?: string;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
+  const date = recordedAt ?? evidence.recorded_at;
   return (
     <>
       <button
         type="button"
         onClick={() => (setOpen(true), dialog.current?.showModal())}
-        className="rounded-sm border border-line bg-raised px-1.5 py-0.5 font-mono text-2xs text-accent-ink underline underline-offset-2 hover:bg-accent-soft"
+        className="inline-flex min-h-11 items-center rounded-sm border border-line bg-raised px-2 py-0.5 text-xs text-accent-ink underline underline-offset-2 hover:bg-accent-soft md:min-h-7"
       >
-        {label ?? defaultLabel(evidence)}
+        {label ?? defaultLabel(evidence, date, timezone)}
       </button>
       {createPortal(
       <dialog

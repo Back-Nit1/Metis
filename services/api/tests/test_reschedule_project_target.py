@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from metis_api import deps
 from metis_api.auth import Principal
+from metis_contracts import ErrorCode, MetisError
 
 NY = "America/New_York"
 T0 = "2026-10-05T14:00:00+00:00"
@@ -61,6 +62,7 @@ def test_reschedule_is_pending_until_the_worker_confirms(client, worker):
     r = client.post(
         f"/v1/reminders/{rem['id']}/reschedule",
         json={"expected_revision": rem["revision"], "local_date": "2026-10-08", "local_time": "10:30"},
+        headers={"Idempotency-Key": "reschedule-pending"},
     )
     assert r.status_code == 200
     body = r.json()
@@ -72,11 +74,31 @@ def test_reschedule_is_pending_until_the_worker_confirms(client, worker):
     assert after["state"] == "scheduled" and after["trigger_at"] == body["trigger_at"]
 
 
+def test_reschedule_reports_schedule_failed_when_sync_fails(client, worker, adapters, monkeypatch):
+    rem = _reminder(client, worker)
+
+    def unavailable(**_kwargs):
+        raise MetisError(ErrorCode.PROVIDER_UNAVAILABLE, "scheduler unavailable")
+
+    monkeypatch.setattr(adapters.schedule_store, "upsert_schedule", unavailable)
+    moved = client.post(
+        f"/v1/reminders/{rem['id']}/reschedule",
+        json={"expected_revision": rem["revision"], "trigger_at": "2026-10-09T12:00:00Z"},
+        headers={"Idempotency-Key": "reschedule-failed"},
+    )
+    assert moved.status_code == 200 and moved.json()["state"] == "pending_schedule"
+
+    worker(cycles=1)
+    after = client.get(f"/v1/reminders/{rem['id']}").json()
+    assert after["state"] == "schedule_failed"
+
+
 def test_reschedule_stale_revision_is_409(client, worker):
     rem = _reminder(client, worker)
     r = client.post(
         f"/v1/reminders/{rem['id']}/reschedule",
         json={"expected_revision": rem["revision"] + 5, "trigger_at": "2026-10-09T12:00:00Z"},
+        headers={"Idempotency-Key": "reschedule-stale"},
     )
     assert r.status_code == 409
 
@@ -86,6 +108,7 @@ def test_reschedule_into_the_past_is_refused_and_changes_nothing(client, worker)
     r = client.post(
         f"/v1/reminders/{rem['id']}/reschedule",
         json={"expected_revision": rem["revision"], "trigger_at": "2026-10-01T12:00:00Z"},
+        headers={"Idempotency-Key": "reschedule-past"},
     )
     assert r.status_code == 422
     assert client.get(f"/v1/reminders/{rem['id']}").json()["revision"] == rem["revision"]
@@ -98,6 +121,7 @@ def test_reschedule_of_a_canceled_reminder_is_an_invalid_transition(client, work
     r = client.post(
         f"/v1/reminders/{rem['id']}/reschedule",
         json={"expected_revision": current["revision"], "trigger_at": "2026-10-09T12:00:00Z"},
+        headers={"Idempotency-Key": "reschedule-canceled"},
     )
     assert r.status_code == 422
 
@@ -107,7 +131,7 @@ def test_reschedule_cross_owner_is_not_found(client, worker, other):
     r = client.post(
         f"/v1/reminders/{rem['id']}/reschedule",
         json={"expected_revision": rem["revision"], "trigger_at": "2026-10-09T12:00:00Z"},
-        headers=other,
+        headers=other | {"Idempotency-Key": "reschedule-other"},
     )
     assert r.status_code == 404
 
@@ -138,9 +162,27 @@ def _project(client, pid="proj_cerno"):
             "aliases": ["cerno-app"],
             "objective": "Ship it",
         },
+        headers={"Idempotency-Key": f"create-{pid}"},
     )
     assert r.status_code == 201
     return r.json()
+
+
+def test_project_create_is_owner_derived_and_replayed(client):
+    body = {
+        "id": "proj_manual",
+        "user_id": "attacker-chosen-owner",
+        "created_at": T0,
+        "updated_at": T0,
+        "title": "Manual project",
+    }
+    headers = {"Idempotency-Key": "create-manual-project"}
+    first = client.post("/v1/projects", json=body, headers=headers)
+    replay = client.post("/v1/projects", json=body, headers=headers)
+
+    assert first.status_code == replay.status_code == 201
+    assert first.json() == replay.json()
+    assert first.json()["user_id"] != body["user_id"]
 
 
 def test_project_patch_omitted_unchanged_null_clears(client):
@@ -148,6 +190,7 @@ def test_project_patch_omitted_unchanged_null_clears(client):
     r = client.patch(
         f"/v1/projects/{p['id']}",
         json={"expected_revision": p["revision"], "title": "Cerno 2", "objective": None},
+        headers={"Idempotency-Key": "patch-omitted"},
     )
     assert r.status_code == 200
     body = r.json()
@@ -160,6 +203,7 @@ def test_project_patch_archive_and_aliases_deduped(client):
     r = client.patch(
         f"/v1/projects/{p['id']}",
         json={"expected_revision": p["revision"], "aliases": ["a", "a", "b"], "archived": True},
+        headers={"Idempotency-Key": "patch-archive"},
     )
     assert r.json()["aliases"] == ["a", "b"] and r.json()["archived"] is True
 
@@ -168,12 +212,18 @@ def test_project_patch_cannot_null_title_and_stale_is_409(client):
     p = _project(client)
     assert (
         client.patch(
-            f"/v1/projects/{p['id']}", json={"expected_revision": p["revision"], "title": None}
+            f"/v1/projects/{p['id']}",
+            json={"expected_revision": p["revision"], "title": None},
+            headers={"Idempotency-Key": "patch-null-title"},
         ).status_code
         == 422
     )
     assert (
-        client.patch(f"/v1/projects/{p['id']}", json={"expected_revision": 99, "title": "x"}).status_code
+        client.patch(
+            f"/v1/projects/{p['id']}",
+            json={"expected_revision": 99, "title": "x"},
+            headers={"Idempotency-Key": "patch-stale"},
+        ).status_code
         == 409
     )
 
@@ -181,7 +231,14 @@ def test_project_patch_cannot_null_title_and_stale_is_409(client):
 def test_project_patch_cross_owner_and_replay(client, other):
     p = _project(client)
     body = {"expected_revision": p["revision"], "title": "Renamed"}
-    assert client.patch(f"/v1/projects/{p['id']}", json=body, headers=other).status_code == 404
+    assert (
+        client.patch(
+            f"/v1/projects/{p['id']}",
+            json=body,
+            headers=other | {"Idempotency-Key": "patch-other"},
+        ).status_code
+        == 404
+    )
     h = {"Idempotency-Key": "pp-1"}
     a = client.patch(f"/v1/projects/{p['id']}", json=body, headers=h)
     b = client.patch(f"/v1/projects/{p['id']}", json=body, headers=h)
@@ -204,6 +261,7 @@ def test_attach_capture_files_unprojected_derivatives_and_keeps_existing(client,
             "expected_revision": proposal["revision"],
             "decisions": [{"item_index": i, "action": "accept"} for i in range(len(proposal["items"]))],
         },
+        headers={"Idempotency-Key": "resolve-attach"},
     )
     detail = client.get(f"/v1/captures/{cap}").json()
     assert detail["created_task_ids"]
@@ -216,6 +274,7 @@ def test_attach_capture_files_unprojected_derivatives_and_keeps_existing(client,
     r = client.post(
         f"/v1/captures/{cap}/project",
         json={"expected_revision": detail["source"]["revision"], "project_id": proj["id"]},
+        headers={"Idempotency-Key": "attach-derived"},
     )
     assert r.status_code == 200 and r.json()["project_id"] == proj["id"]
     for tid in detail["created_task_ids"]:
@@ -228,11 +287,27 @@ def test_attach_capture_conflict_missing_project_and_cross_owner(client, other):
     cap = _capture(client, "A note.", "c2")
     rev = client.get(f"/v1/captures/{cap}").json()["source"]["revision"]
     path = f"/v1/captures/{cap}/project"
-    assert client.post(path, json={"expected_revision": rev + 3, "project_id": proj["id"]}).status_code == 409
-    assert client.post(path, json={"expected_revision": rev, "project_id": "proj_nope"}).status_code == 404
     assert (
         client.post(
-            path, json={"expected_revision": rev, "project_id": proj["id"]}, headers=other
+            path,
+            json={"expected_revision": rev + 3, "project_id": proj["id"]},
+            headers={"Idempotency-Key": "attach-stale"},
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(
+            path,
+            json={"expected_revision": rev, "project_id": "proj_nope"},
+            headers={"Idempotency-Key": "attach-missing"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            path,
+            json={"expected_revision": rev, "project_id": proj["id"]},
+            headers=other | {"Idempotency-Key": "attach-other"},
         ).status_code
         == 404
     )
@@ -241,6 +316,37 @@ def test_attach_capture_conflict_missing_project_and_cross_owner(client, other):
     a = client.post(path, json=body, headers=h)
     b = client.post(path, json=body, headers=h)
     assert a.status_code == b.status_code == 200 and a.json() == b.json()
+
+
+def test_new_mutations_require_idempotency_keys(client, worker):
+    rem = _reminder(client, worker)
+    project = _project(client)
+    cap = _capture(client, "A note.", "capture-for-required-keys")
+    source = client.get(f"/v1/captures/{cap}").json()["source"]
+
+    assert (
+        client.post(
+            f"/v1/reminders/{rem['id']}/reschedule",
+            json={"expected_revision": rem["revision"], "trigger_at": "2026-10-09T12:00:00Z"},
+        ).status_code
+        == 422
+    )
+    # The web client edits projects without a key; a key is optional replay protection here.
+    assert (
+        client.patch(
+            f"/v1/projects/{project['id']}",
+            json={"expected_revision": project["revision"], "title": "No key"},
+        ).status_code
+        == 200
+    )
+    project = client.get(f"/v1/projects/{project['id']}").json()["project"]
+    assert (
+        client.post(
+            f"/v1/captures/{cap}/project",
+            json={"expected_revision": source["revision"], "project_id": project["id"]},
+        ).status_code
+        == 422
+    )
 
 
 # --- explicit status_update target ------------------------------------------ #
@@ -264,6 +370,7 @@ def _ambiguous(client, worker):
             "expected_revision": proposal["revision"],
             "decisions": [{"item_index": i, "action": "accept"} for i in range(len(proposal["items"]))],
         },
+        headers={"Idempotency-Key": "resolve-ambiguous"},
     )
     assert r.status_code == 200
     resolved = r.json()["proposal"]
@@ -282,6 +389,7 @@ def test_choosing_a_candidate_applies_exactly_that_one(client, worker):
     r = client.post(
         f"/v1/proposals/{proposal['id']}/target",
         json={"expected_revision": proposal["revision"], "item_index": idx, "target_id": ids[1]},
+        headers={"Idempotency-Key": "choose-exact"},
     )
     assert r.status_code == 200
     assert r.json()["proposal"]["target_choices"][0]["chosen_id"] == ids[1]
@@ -299,11 +407,15 @@ def test_target_must_be_a_recorded_candidate_and_stale_is_409(client, worker):
         headers={"Idempotency-Key": "evx"},
     ).json()
     bad = client.post(
-        path, json={"expected_revision": proposal["revision"], "item_index": idx, "target_id": stranger["id"]}
+        path,
+        json={"expected_revision": proposal["revision"], "item_index": idx, "target_id": stranger["id"]},
+        headers={"Idempotency-Key": "choose-invalid"},
     )
     assert bad.status_code == 422
     stale = client.post(
-        path, json={"expected_revision": proposal["revision"] + 4, "item_index": idx, "target_id": ids[0]}
+        path,
+        json={"expected_revision": proposal["revision"] + 4, "item_index": idx, "target_id": ids[0]},
+        headers={"Idempotency-Key": "choose-stale"},
     )
     assert stale.status_code == 409
     assert "canceled" not in _states(client, [*ids, stranger["id"]]).values()
@@ -319,7 +431,9 @@ def test_second_answer_conflicts_and_replay_is_idempotent(client, worker):
     b = client.post(path, json=body, headers=h)
     assert a.status_code == b.status_code == 200 and a.json() == b.json()
     fresh = client.post(
-        path, json={**body, "expected_revision": a.json()["proposal"]["revision"], "target_id": ids[1]}
+        path,
+        json={**body, "expected_revision": a.json()["proposal"]["revision"], "target_id": ids[1]},
+        headers={"Idempotency-Key": "choose-second"},
     )
     assert fresh.status_code == 409
     assert _states(client, ids)[ids[1]] != "canceled"
@@ -330,6 +444,6 @@ def test_choose_target_cross_owner_is_not_found(client, worker, other):
     r = client.post(
         f"/v1/proposals/{proposal['id']}/target",
         json={"expected_revision": proposal["revision"], "item_index": 0, "target_id": ids[0]},
-        headers=other,
+        headers=other | {"Idempotency-Key": "choose-other"},
     )
     assert r.status_code == 404

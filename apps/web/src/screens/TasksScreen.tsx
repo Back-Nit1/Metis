@@ -10,6 +10,7 @@ import { type Event as MetisEvent, type Task, TaskState } from "../contracts/met
 import { Button } from "../components/Button";
 import { Chip, Empty, Notice, PageHeader, SectionHeading } from "../components/Card";
 import { Icon } from "../components/Icon";
+import { EvidenceLink } from "../components/EvidenceLink";
 import { useSession } from "../app/session";
 import { useChanges } from "../lib/useSync";
 import { ApiError, api } from "../lib/api";
@@ -53,7 +54,7 @@ export function TasksScreen() {
     } catch (cause) {
       setNotice(
         cause instanceof ApiError && cause.currentRevision !== null
-          ? `This task changed elsewhere (now revision ${cause.currentRevision}). Nothing was overwritten — reload and try again.`
+          ? "This task changed elsewhere. Nothing was overwritten — reload and try again."
           : "That change was rejected.",
       );
     }
@@ -113,14 +114,12 @@ export function TasksScreen() {
                     <button
                       type="button"
                       aria-expanded={selected?.id === task.id}
-                      className="min-h-6 text-left font-serif text-base font-semibold text-ink underline-offset-2 hover:underline"
+                      className="min-h-11 text-left font-serif text-base font-semibold text-ink underline-offset-2 hover:underline md:min-h-6"
                       onClick={() => setSelected(selected?.id === task.id ? null : task)}
                     >
                       {task.title}
                     </button>
-                    <Chip title={`state ${task.state}, revision ${task.revision}`}>
-                      {task.state} · r{task.revision}
-                    </Chip>
+                    <Chip title={`state ${task.state}`}>{task.state}</Chip>
                   </div>
                   <p className="mt-0.5 text-xs text-muted">
                     {task.deadline_local_date ? `due ${task.deadline_local_date}` : "no deadline"}
@@ -135,17 +134,13 @@ export function TasksScreen() {
                       <dd className="text-ink">{selected.deadline_local_date ?? "not set"}</dd>
                       <dt className="text-muted">Created</dt>
                       <dd className="text-ink">{timeLabel(selected.created_at, timezone)}</dd>
-                      <dt className="text-muted">Revision</dt>
-                      <dd className="text-ink">{selected.revision}</dd>
                       <dt className="text-muted">Source</dt>
-                      <dd className="break-all font-mono text-ink">
+                      <dd className="flex flex-wrap gap-1.5 text-ink">
                         {selected.source_refs?.length
                           ? selected.source_refs
-                              .map(
-                                (ref) =>
-                                  `${ref.source_id} v${ref.source_version}${ref.span_ref ? ` (${ref.span_ref})` : ""}`,
-                              )
-                              .join(", ")
+                              .map((ref, index) => (
+                                <EvidenceLink key={`${ref.source_id}:${ref.source_version}:${ref.span_ref ?? index}`} evidence={ref} recordedAt={selected.created_at} timezone={timezone} />
+                              ))
                           : "no source: created by hand"}
                       </dd>
                     </dl>

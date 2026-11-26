@@ -7,6 +7,8 @@ worker. `METIS_MODE` selects the adapter set:
 * ``local``   — SQLite state, filesystem objects, fixture inference, fixture ASR
 * ``hybrid``  — local state, real Bedrock/ASR; for development against AWS
 * ``cloud``   — DynamoDB, S3, Bedrock, ECS ASR, EventBridge Scheduler
+* ``server``  — server-owned SQLite/filesystem, real speech and inference;
+  clients access the database only through the authenticated API
 
 Production refuses fixture identity and fixture inference: a mock must never
 masquerade as a completed production result.
@@ -25,6 +27,7 @@ class Mode(StrEnum):
     LOCAL = "local"
     HYBRID = "hybrid"
     CLOUD = "cloud"
+    SERVER = "server"
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -294,6 +297,7 @@ class Settings:
     mode: Mode = field(default_factory=lambda: Mode(_env("METIS_MODE", "local") or "local"))
     environment: Literal["dev", "staging", "prod"] = field(default_factory=_env_environment)
     build: str | None = field(default_factory=lambda: _env("METIS_BUILD"))
+    firebase_project_id: str | None = field(default_factory=lambda: _env("METIS_FIREBASE_PROJECT_ID"))
     allow_fixture_identity: bool = field(
         default_factory=lambda: _env_bool("METIS_ALLOW_FIXTURE_IDENTITY", True)
     )
@@ -321,6 +325,25 @@ class Settings:
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
 
     def __post_init__(self) -> None:
+        if self.mode is Mode.SERVER:
+            if self.allow_fixture_identity or self.desktop.enabled:
+                raise ValueError(
+                    "server mode requires per-user authentication, not fixture or desktop identity"
+                )
+            if not self.firebase_project_id and not (
+                self.aws.cognito_user_pool_id and self.aws.cognito_client_id
+            ):
+                raise ValueError("server mode requires METIS_FIREBASE_PROJECT_ID or configured Cognito")
+            if self.desktop.speech_engine not in ("remote", "faster_whisper"):
+                raise ValueError("server mode requires a real METIS_SPEECH_ENGINE")
+            if _env("METIS_INFERENCE_ENGINE") not in ("local", "cloud"):
+                raise ValueError("server mode requires an explicit real METIS_INFERENCE_ENGINE")
+            if _env("METIS_INFERENCE_ENGINE") == "local" and not _env("METIS_LOCAL_LLM_MODEL"):
+                raise ValueError("server inference requires METIS_LOCAL_LLM_MODEL")
+            if _env("METIS_EMBED_ENGINE") == "fixture":
+                raise ValueError("server mode refuses fixture embeddings")
+            if _env("METIS_INFERENCE_ENGINE") == "local" and not _env("METIS_LOCAL_EMBED_MODEL"):
+                raise ValueError("server embeddings require METIS_LOCAL_EMBED_MODEL")
         if self.mode is Mode.CLOUD and self.allow_fixture_identity:
             # The default is True for local development; a deployed (staging or
             # otherwise non-prod) cloud stack must not answer anonymous callers
@@ -331,8 +354,8 @@ class Settings:
             # fixture identity or a fixture model when auth or Bedrock fails.
             if self.allow_fixture_identity:
                 raise ValueError("METIS_ALLOW_FIXTURE_IDENTITY must be false when METIS_ENV=prod")
-            if self.mode is not Mode.CLOUD:
-                raise ValueError("METIS_ENV=prod requires METIS_MODE=cloud")
+            if self.mode not in (Mode.CLOUD, Mode.SERVER):
+                raise ValueError("METIS_ENV=prod requires METIS_MODE=cloud or server")
             if self.desktop.enabled:
                 raise ValueError("METIS_DESKTOP_AUTH_SECRET must be unset when METIS_ENV=prod")
             missing = [
@@ -343,7 +366,7 @@ class Settings:
                     ("METIS_COGNITO_USER_POOL_ID", self.aws.cognito_user_pool_id),
                     ("METIS_COGNITO_CLIENT_ID", self.aws.cognito_client_id),
                 )
-                if not value
+                if not value and self.mode is Mode.CLOUD
             ]
             if missing:
                 raise ValueError(f"production configuration is missing: {', '.join(missing)}")
@@ -354,7 +377,7 @@ class Settings:
 
     @property
     def uses_real_inference(self) -> bool:
-        return self.mode in (Mode.CLOUD, Mode.HYBRID)
+        return self.mode in (Mode.CLOUD, Mode.HYBRID, Mode.SERVER)
 
 
 @lru_cache(maxsize=1)

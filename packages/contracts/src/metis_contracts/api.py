@@ -561,10 +561,13 @@ class ChangesResponse(StrictModel):
 
 
 class HealthResponse(StrictModel):
+    """Unauthenticated callers get only ``status`` and ``contract_version``;
+    mode, adapters and build are returned to an authenticated caller."""
+
     status: Literal["ok", "degraded"]
-    mode: str
-    adapters: dict[str, str]
     contract_version: int
+    mode: str | None = None
+    adapters: dict[str, str] | None = None
     build: str | None = None
 
 

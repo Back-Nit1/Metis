@@ -87,6 +87,21 @@ def test_health_and_limits_stay_open(desktop):
     assert desktop.get("/v1/limits").status_code == 200
 
 
+def test_health_hides_build_and_adapters_without_auth(desktop):
+    for headers in ({}, bearer(OTHER)):
+        public = desktop.get("/v1/health", headers=headers)
+        assert public.status_code == 200
+        assert set(public.json()) == {"status", "contract_version"}
+    full = desktop.get("/v1/health", headers=bearer(SECRET)).json()
+    assert {"mode", "adapters"} <= set(full)
+
+
+def test_api_responses_carry_a_csp(desktop):
+    response = desktop.get("/v1/health")
+    assert response.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
 def test_fixture_identity_unchanged_when_secret_unset(client):
     assert client.get("/v1/tasks").status_code == 200
 

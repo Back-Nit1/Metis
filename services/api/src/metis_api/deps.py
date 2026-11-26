@@ -246,7 +246,7 @@ class RequestContext:
 _TEST_CLIENT = "testclient"
 
 
-def _is_loopback_client(request: Request) -> bool:
+def is_loopback_client(request: Request) -> bool:
     host = request.client.host if request.client else ""
     if host == _TEST_CLIENT:
         return True
@@ -272,7 +272,7 @@ async def get_context(
 ) -> RequestContext:
     fingerprint: str | None = None
     principal = principal_from_header(authorization)
-    if principal.is_fixture and not _is_loopback_client(request):
+    if principal.is_fixture and not is_loopback_client(request):
         # The demo identity needs no credential, so it is only for this machine.
         # The Host guard stops DNS rebinding, but a LAN caller can send any Host.
         raise MetisError(ErrorCode.UNAUTHENTICATED, "authentication is required")

@@ -2,13 +2,22 @@
   "$id": "https://metis.local/schemas/v1/HealthResponse.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "description": "Unauthenticated callers get only ``status`` and ``contract_version``;\nmode, adapters and build are returned to an authenticated caller.",
   "properties": {
     "adapters": {
-      "additionalProperties": {
-        "type": "string"
-      },
-      "title": "Adapters",
-      "type": "object"
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Adapters"
     },
     "build": {
       "anyOf": [
@@ -27,8 +36,16 @@
       "type": "integer"
     },
     "mode": {
-      "title": "Mode",
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mode"
     },
     "status": {
       "enum": [
@@ -41,8 +58,6 @@
   },
   "required": [
     "status",
-    "mode",
-    "adapters",
     "contract_version"
   ],
   "title": "HealthResponse",

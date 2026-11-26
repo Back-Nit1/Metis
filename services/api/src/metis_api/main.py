@@ -97,6 +97,11 @@ def create_app() -> FastAPI:
             response = _error_response(exc, correlation_id)
         duration_ms = int((time.monotonic() - started) * 1000)
         response.headers["X-Correlation-Id"] = correlation_id
+        # JSON API: nothing it returns should ever load or be framed as a page.
+        # Local Swagger UI (/docs, /redoc) needs its CDN assets; Caddy 404s it in prod.
+        if not request.url.path.startswith(("/docs", "/redoc")):
+            response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
         log.info(
             "%s %s -> %s in %dms correlation=%s",
             request.method,

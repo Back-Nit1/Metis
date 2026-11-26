@@ -3,27 +3,41 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Header, Request, Response, status
 from metis_contracts import CONTRACT_VERSION, ErrorCode, EventType, JobState, MetisError, new_id, settings
 from metis_contracts.api import CreateExportRequest, ExportStatusResponse, HealthResponse, JobAccepted
 from metis_contracts.entities import Job, ObjectRef, OutboxEvent
 
-from ..deps import Context, RequestContext, get_adapters
+from ..auth import principal_from_header
+from ..deps import Context, RequestContext, get_adapters, is_loopback_client
 
 router = APIRouter(prefix="/v1", tags=["ops"])
 
 
-@router.get("/health", response_model=HealthResponse)
-def health(request: Request) -> HealthResponse:
-    """Adapter modes, so the client can label fixture mode honestly."""
+def _is_authenticated(request: Request, authorization: str | None) -> bool:
+    try:
+        principal = principal_from_header(authorization)
+    except MetisError:
+        return False
+    # Same rule as get_context: the credential-free demo subject is loopback-only.
+    return not principal.is_fixture or is_loopback_client(request)
+
+
+@router.get("/health", response_model=HealthResponse, response_model_exclude_unset=True)
+def health(request: Request, authorization: Annotated[str | None, Header()] = None) -> HealthResponse:
+    """Liveness for anyone; adapter modes and build only for an authenticated
+    caller, so the client can label fixture mode honestly without exposing it."""
     adapters = get_adapters(request)
     cfg = settings()
     described = adapters.describe()
     degraded = any(mode == "none" or mode.startswith("unavailable") for mode in described.values())
+    state: Literal["ok", "degraded"] = "degraded" if degraded else "ok"
+    if not _is_authenticated(request, authorization):
+        return HealthResponse(status=state, contract_version=CONTRACT_VERSION)
     return HealthResponse(
-        status="degraded" if degraded else "ok",
+        status=state,
         mode=cfg.mode.value,
         adapters=described,
         contract_version=CONTRACT_VERSION,

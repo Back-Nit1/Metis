@@ -747,11 +747,12 @@ export interface FlowSettings {
   keep_history?: boolean;
 }
 
+/** Unauthenticated callers get only ``status`` and ``contract_version``; */
 export interface HealthResponse {
   status: "ok" | "degraded";
-  mode: string;
-  adapters: { [key: string]: string };
   contract_version: number;
+  mode?: string | null;
+  adapters?: { [key: string]: string } | null;
   build?: string | null;
 }
 

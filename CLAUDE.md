@@ -40,7 +40,9 @@ your task needs** — do not load the whole spec into every turn.
    model call, settle after. Deterministic reminders make zero model calls.
 8. **No credentials in the browser.** No AWS keys, no Bedrock calls, no model
    IDs with secrets in `apps/web/`.
-9. **Local mode works with no cloud account.** `METIS_MODE=local` uses SQLite,
+9. **The shipped desktop is server-backed (ADR 0006).** It must not start local
+   API, speech, worker or model services. GCP owns durable user data.
+   **Local development mode works with no cloud account.** `METIS_MODE=local` uses SQLite,
    the fixture transcriber and the fixture inference client.
 10. **Path ownership.** Stay inside your assigned paths (see
     `docs/spec/development.md` table and `.claude/agents/`). Never `git add -A`.

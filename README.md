@@ -4,11 +4,16 @@ A voice-first multimodal personal assistant. You speak or type a thought; Metis
 turns it into sources, extraction proposals, tasks, events, plans and
 reminders, and keeps a source reference on every derived fact.
 
-**Direction.** Metis is becoming a local-first desktop app: hold a key anywhere,
-speak, release, and the thought is already a proposal you can review. Everything
-runs on your machine by default (SQLite, a bundled backend, a local speech
-model); the AWS stack is an optional cloud path, not a requirement. The browser
-PWA stays as the full review surface. Ordered next steps are in `new.md`.
+**Direction.** Metis is a server-backed desktop and web app. The desktop
+captures microphone audio and displays results; GCP runs transcription,
+extraction, retrieval, reminders and the authoritative database. The desktop
+starts no local backend or model. See [ADR 0006](docs/architecture/0006-hosted-desktop.md)
+and the [hosted cutover runbook](ops/gcp/hosted-desktop.md).
+
+The hosted client/server implementation is tested; the existing single-user
+GCP deployment still needs the identity/model configuration and explicit
+cutover described in that runbook. Local fixture mode remains available for
+repository development with `make dev`.
 
 This README describes **what actually runs today**, not the target product. The
 full specification is `prompt (1).md`; role-scoped extracts are in
@@ -27,18 +32,15 @@ inference and fixture transcription are labelled as such in the UI):
 | State / pipeline / scheduler / retrieval / planner | SQLite store with transactional outbox, local worker loop, honest reminder states, scoped search, deterministic plan validation. |
 | Web | React/Vite PWA: capture, proposals, Today, plans, projects, search, settings, export, optional Cognito PKCE (only when `VITE_METIS_COGNITO_*` is set), desktop HUD route. |
 | Dictation ("Flow") | Hold-to-dictate sessions on the speech server (chunked PCM, provisional partials, finalize on release), deterministic cleanup with dictionary, snippets and per-app style, settings under `Preferences.flow`. Server side only: desktop insertion is not built (ADR 0005). |
-| Desktop | Tauri v2 shell with a packaged `metis-backend` (api/worker/speech) supervised by Rust, hold-to-talk state machine and uploader, HUD window. Built and tested on aarch64 macOS only. |
+| Desktop | Tauri HTTPS client with native capture, dictation and HUD. Per-user sign-in; no bundled Python backend or model weights. Built on aarch64 macOS only. |
 | Infra | CDK app synthesizes 7 stacks (`make synth`), template assertions pass. `ops/` has runbook, cost worksheet and procedures. |
 | Checks | `make check`, `make test` (python, web, E2E in `tests/e2e`) and `pnpm --filter @metis/desktop test` pass. Exact counts: `docs/progress.md`. |
 
 What is **not** done or **not verified**, stated plainly:
 
-- **No transcription of real audio has been verified.** The GCP VM loads the
-  faster-whisper `small.en` model (pinned to the Hugging Face commit resolved at
-  deploy time, not checksummed), but no recording has been decoded end to end and
-  nothing is benchmarked. `make speech-bench` without `--hypotheses` echoes the
-  reference text. The desktop app refuses to record until a model is placed in
-  `<app-data>/models`.
+- **Hosted cutover is pending.** The existing VM has verified real-ASR measurements
+  in `services/speech/reports/2026-11-26-vm/REPORT.md`; the new multi-user
+  desktop path still needs a live-account microphone and concurrency pass.
 - **No hardware pass.** The global shortcut, microphone capture and the HUD
   window have not been exercised by a person. Steps are in the desktop handoff.
 - **The AWS stack is not deployed.** Every AWS check is UNRUN (`ops/runbook.md`).
@@ -47,7 +49,7 @@ What is **not** done or **not verified**, stated plainly:
 - **Known product defects** are strict `xfail` tests in `tests/e2e/` (spoken
   "already registered"/"cancel that", registration-reminder suppression,
   duplicate registration task, project attachment of captured notes).
-- **Desktop packaging** is unsigned, un-notarized, one target triple, ~100 MB.
+- **Desktop packaging** is unsigned and un-notarized, one target triple. The hosted debug app builds without backend/model resources (~37 MB).
 - **Fixture extraction** is the only extraction in local mode.
 - **One login, not accounts.** The Vercel UI has a single username/password
   (checked at the edge proxy); the VM API accepts one random key
@@ -90,46 +92,30 @@ gitignored. Delete the directory to reset.
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-pnpm --filter @metis/desktop test        # cargo tests + packaged-backend smoke test
-pnpm --filter @metis/desktop backend:build   # PyInstaller `metis-backend` (needs network)
-pnpm --filter @metis/desktop tauri dev   # window + supervised api/worker/speech
+export VITE_METIS_FIREBASE_PROJECT_ID=metis-dev-856337
+export VITE_METIS_FIREBASE_API_KEY='<public-identity-platform-web-key>'
+pnpm --filter @metis/desktop tauri dev
+pnpm --filter @metis/desktop tauri build
 ```
 
-The supervisor generates a per-launch secret and passes it to the children only
-through their environment; the webview receives the API URL and bearer in memory
-via the `desktop_connection` command. Ownership is a stable per-install subject
-stored in the app-data directory, never the secret. Recording is refused until
-API, worker and the speech model are all healthy. Place a model under
-`<app-data>/models/<model id>` (default `small.en`); nothing is downloaded at
-runtime. Hold-to-talk is `Cmd+Option+Space`; this has **not** been exercised on
-real hardware yet.
+The default API is `https://34-30-254-78.sslip.io`; `METIS_SERVER_URL` accepts
+an HTTPS origin override. The signed-in user's ID token is kept in memory by
+the native capture client; a shared VM secret is never shipped. Missing auth
+configuration fails closed. Hold-to-talk is `Cmd+Option+Space`; dictation is
+`Cmd+Option+D`. Neither requires a local Whisper, Ollama, API or SQLite process.
+The old local stack remains available for isolated backend integration tests.
 
 ### Deployment (GCP VM + Vercel UI)
 
-One Compute Engine VM runs `METIS_MODE=local` (SQLite, fixture inference, real
-faster-whisper) as systemd units: API `:8000`, worker, speech/dictation `:8787`,
-static web `:5173`, all on loopback. The only public surface is Caddy on
-`:443` at `<ip>.sslip.io` (automatic TLS), proxying to the API. The API requires
-the single access key as a bearer on every route except `/v1/health`; `/docs` is
-blocked; SSH is IAP-only; `:8787` and `:5173` are never exposed.
+Follow [the hosted cutover runbook](ops/gcp/hosted-desktop.md). Deploy only
+committed `main`. `METIS_MODE=server` uses the database and object directory
+on the VM with verified per-user tokens and real server-side inference.
+The speech service remains private; `/v1/flow/sessions` is an authenticated
+API proxy with owner isolation and bounded admission.
 
-```bash
-PROJECT=<gcp-project-id> ops/gcp/deploy.sh      # idempotent: provision + ship committed HEAD
-PROJECT=<gcp-project-id> ops/vercel/deploy.sh   # build the UI against that host and publish
-```
-
-`deploy.sh` prints the commands to read the access key and the dictation secret
-(both are generated on the VM and never committed). The access key goes only into
-the Vercel env var `METIS_ACCESS_KEY`; the browser never sees it. The UI asks for
-a username and password (`METIS_LOGIN_USER`, `METIS_LOGIN_PASSWORD_HASH` from
-`node ops/vercel/hash-password.mjs`, `METIS_SESSION_SECRET`; see
-`ops/vercel/deploy.sh`), and the proxy forwards a request, adding the key, only
-when it carries a valid signed HttpOnly session cookie. Dictation (`:8787`) is reached only through an IAP
-tunnel. Idle cost drops to disk plus the static IP after
-`gcloud compute instances stop metis --zone us-central1-a`; teardown is
-deleting the project. Rotate the key by deleting `/etc/metis-api.env` and
-redeploying. Before more than one person uses this, replace the shared key with
-real authentication (Cognito is already supported by the web client).
+The current single-user deployment is retained until that explicit cutover.
+Do not distribute its shared key or overwrite its database with a desktop
+copy. Existing local and legacy-server data need an owner-verified migration.
 
 ### Dictation (Flow)
 
@@ -169,7 +155,7 @@ make clean         # remove caches and local build output
 
 ```
 apps/web/            React + TS + Vite PWA
-apps/desktop/        Tauri v2 shell, supervisor, hold-to-talk, packaged backend
+apps/desktop/        Tauri hosted client, native capture/dictation, local test stack
 packages/contracts/  JSON Schema, generated TS, Pydantic, fixtures
 services/api/        FastAPI app + Lambda adapter
 services/state/      StateStore: SQLite (local) + DynamoDB (cloud)

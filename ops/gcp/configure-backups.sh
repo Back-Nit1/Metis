@@ -18,7 +18,7 @@ if ! g storage buckets describe "gs://$BUCKET" >/dev/null 2>&1; then
   g storage buckets create "gs://$BUCKET" --location="$REGION" \
     --uniform-bucket-level-access --public-access-prevention
 fi
-bucket_project="$(g storage buckets describe "gs://$BUCKET" --format='value(project_number)')"
+bucket_project="$(g storage buckets describe "gs://$BUCKET" --raw --format='value(projectNumber)')"
 if [ "$bucket_project" != "$project_number" ]; then
   echo 'backup bucket belongs to another project; refusing to modify it' >&2
   exit 1

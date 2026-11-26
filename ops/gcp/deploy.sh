@@ -31,6 +31,8 @@ OBS_SA="$OBS_SA_ID@$PROJECT.iam.gserviceaccount.com"
 # is the API process on this VM; add internal endpoints when API nodes are
 # provisioned separately.
 METIS_API_UPSTREAMS="${METIS_API_UPSTREAMS:-127.0.0.1:8000}"
+METIS_CHANGES_UPSTREAMS="${METIS_CHANGES_UPSTREAMS:-127.0.0.1:8001}"
+METIS_BACKUP_BUCKET="${METIS_BACKUP_BUCKET:-$PROJECT-metis-backups}"
 # ponytail: e2-medium (2 shared vCPU, 4 GB) fits small.en int8 at concurrency 1;
 # move to e2-standard-2+ if transcription latency or a larger model demands it.
 MACHINE="${MACHINE:-e2-medium}"
@@ -118,12 +120,12 @@ HOST="${IP//./-}.sslip.io"
 export VITE_METIS_API="https://$HOST"
 
 # Validate the edge inputs before copying or changing anything on the VM.
-HOST="$HOST" METIS_API_UPSTREAMS="$METIS_API_UPSTREAMS" \
+HOST="$HOST" METIS_API_UPSTREAMS="$METIS_API_UPSTREAMS" METIS_CHANGES_UPSTREAMS="$METIS_CHANGES_UPSTREAMS" \
   ops/gcp/render-caddyfile.sh >/dev/null
 
 # Build the web client from the same commit, in a clean export.
 stage="$(mktemp -d)"; trap 'rm -rf "$stage"' EXIT
-git archive HEAD | tar -x -C "$stage"
+git archive "$BUILD_SHA" | tar -x -C "$stage"
 (cd "$stage" && pnpm install --frozen-lockfile --filter @metis/web... && pnpm --filter @metis/web build)
 # macOS otherwise serializes com.apple.* metadata into pax headers that GNU
 # tar on the VM cannot interpret, flooding deploy output with harmless noise.
@@ -134,10 +136,10 @@ ssh_ready() { g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command 
 for _ in $(seq 20); do ssh_ready && break; sleep 6; done
 
 g compute scp --zone "$ZONE" --tunnel-through-iap "$stage.tar.gz" "$VM:/tmp/metis.tar.gz"
-g compute scp --zone "$ZONE" --tunnel-through-iap ops/gcp/vm-setup.sh "$VM:/tmp/vm-setup.sh"
+g compute scp --zone "$ZONE" --tunnel-through-iap "$stage/ops/gcp/vm-setup.sh" "$VM:/tmp/vm-setup.sh"
 rm -f "$stage.tar.gz"
-printf -v VM_SETUP_COMMAND 'sudo env HOST=%q METIS_API_UPSTREAMS=%q METIS_BUILD=%q bash /tmp/vm-setup.sh' \
-  "$HOST" "$METIS_API_UPSTREAMS" "$BUILD_SHA"
+printf -v VM_SETUP_COMMAND 'sudo env HOST=%q METIS_API_UPSTREAMS=%q METIS_CHANGES_UPSTREAMS=%q METIS_BACKUP_BUCKET=%q METIS_BUILD=%q bash /tmp/vm-setup.sh' \
+  "$HOST" "$METIS_API_UPSTREAMS" "$METIS_CHANGES_UPSTREAMS" "$METIS_BACKUP_BUCKET" "$BUILD_SHA"
 g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "$VM_SETUP_COMMAND"
 
 cat <<EOF

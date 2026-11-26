@@ -88,7 +88,7 @@ speech-image: ## build the owned ASR worker container
 
 .PHONY: speech-bench
 speech-bench: ## WER + name/date/negation fidelity on the evaluation fixtures
-	$(UV) run python -m metis_speech.evaluate --fixtures services/speech/fixtures
+	$(UV) run python -m metis_speech.evaluate --fixtures services/speech/fixtures $(SPEECH_BENCH_ARGS)
 
 .PHONY: retrieval-bench
 retrieval-bench: ## recall/MRR/stale/leak metrics per retrieval mode on the labelled corpus

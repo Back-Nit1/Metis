@@ -63,7 +63,9 @@ METIS_ALLOWED_HOSTS=$HOST
 METIS_SQLITE_PATH=$DATA/metis.sqlite
 METIS_LOCAL_OBJECTS_DIR=$DATA/objects
 METIS_CORS_ORIGINS=https://metis-delta.vercel.app
-METIS_SPEECH_ENGINE=faster_whisper
+METIS_SPEECH_ENGINE=remote
+METIS_SPEECH_ENDPOINT=http://127.0.0.1:8787
+METIS_SPEECH_CPU_THREADS=2
 METIS_SPEECH_MODEL_DIR=$MODELS
 METIS_SPEECH_MODEL_ID=$MODEL_ID
 METIS_SPEECH_ARTIFACT_REVISION=$(cat "$REV_FILE")
@@ -113,6 +115,8 @@ EOF
   chmod 0644 "/etc/systemd/system/$1.service"
 }
 unit metis-api "$APP/.venv/bin/uvicorn metis_api.main:app --host 127.0.0.1 --port 8000"
+unit metis-changes "$APP/.venv/bin/uvicorn metis_api.main:app --host 127.0.0.1 --port 8001"
+unit metis-timers "$APP/.venv/bin/python -m metis_pipeline.local_worker --mode timers --processes 1"
 unit metis-worker "$APP/.venv/bin/python -m metis_pipeline.local_worker"
 unit metis-speech "$APP/.venv/bin/python -m metis_speech.server --port 8787"
 unit metis-web "/usr/bin/python3 -m http.server 5173 --bind 127.0.0.1 --directory $APP/apps/web/dist"
@@ -122,6 +126,24 @@ unit metis-web "/usr/bin/python3 -m http.server 5173 --bind 127.0.0.1 --director
 # ExecStart and can be rolled out without replacing the rest of the unit.
 install -D -m 0644 "$APP/ops/gcp/systemd/metis-api-limits.conf" \
   /etc/systemd/system/metis-api.service.d/limits.conf
+install -D -m 0644 "$APP/ops/gcp/systemd/metis-changes-limits.conf" \
+  /etc/systemd/system/metis-changes.service.d/limits.conf
+"$APP/ops/gcp/configure-runtime.sh"
+
+# A bucket must be provisioned first by configure-backups.sh. An existing
+# backup configuration survives redeploys; credentials come from VM identity.
+if [ -n "${METIS_BACKUP_BUCKET:-}" ]; then
+  [[ "$METIS_BACKUP_BUCKET" =~ ^[a-z0-9][a-z0-9._-]+[a-z0-9]$ ]] || exit 2
+  printf 'METIS_BACKUP_BUCKET=%s\n' "$METIS_BACKUP_BUCKET" >/etc/metis-backup.env
+  chmod 0600 /etc/metis-backup.env
+fi
+if [ -f /etc/metis-backup.env ]; then
+  install -d -m 0700 -o metis -g metis /var/backups/metis
+  install -m 0644 "$APP/ops/gcp/systemd/metis-backup.service" /etc/systemd/system/
+  install -m 0644 "$APP/ops/gcp/systemd/metis-backup.timer" /etc/systemd/system/
+  systemctl daemon-reload
+  systemctl enable -q --now metis-backup.timer
+fi
 install -D -m 0755 "$APP/ops/gcp/monitoring/queue-observer.py" \
   /usr/local/libexec/metis-queue-observer
 install -m 0644 "$APP/ops/gcp/systemd/metis-queue-observer.service" \
@@ -135,6 +157,7 @@ install -m 0644 "$APP/ops/gcp/systemd/metis-queue-observer.timer" \
 # entries in METIS_API_UPSTREAMS when invoking this script.
 HOST="$HOST" \
   METIS_API_UPSTREAMS="${METIS_API_UPSTREAMS:-127.0.0.1:8000}" \
+  METIS_CHANGES_UPSTREAMS="${METIS_CHANGES_UPSTREAMS:-127.0.0.1:8001}" \
   "$APP/ops/gcp/render-caddyfile.sh" >/etc/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl enable -q caddy
@@ -143,9 +166,9 @@ systemctl reload-or-restart caddy
 chown -R metis:metis "$DATA"
 chown -R root:root "$APP" "$MODELS" && chmod -R a+rX "$APP" "$MODELS"
 systemctl daemon-reload
-systemctl enable -q metis-api metis-worker metis-speech metis-web
+systemctl enable -q metis-api metis-changes metis-worker metis-timers metis-speech metis-web
 systemctl enable -q --now metis-queue-observer.timer
-systemctl restart metis-api metis-worker metis-speech metis-web
+systemctl restart metis-speech metis-api metis-changes metis-worker metis-timers metis-web
 
 # Host CPU/memory metrics plus systemd journal logs. The VM service account is
 # provisioned by configure-monitoring.sh with only metric/log writer roles.

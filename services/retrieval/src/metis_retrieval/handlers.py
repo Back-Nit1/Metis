@@ -117,6 +117,12 @@ def handle_source_ingest(envelope: EventEnvelope, context: DispatchContext) -> N
     model is down the event retries and only the missing vectors are computed.
     Malformed input marks the source failed and re-raises so it dead-letters.
     """
+    from metis_contracts import Mode
+
+    # This handler reads source.origin.external_id as an OS path. Until remote
+    # connector adapters exist, queued desktop jobs must not read the VM disk.
+    if settings().mode is Mode.SERVER:
+        raise MetisError(ErrorCode.FORBIDDEN, "local file ingestion is unavailable on the server")
     corpus = getattr(context.memory_store, "corpus", None)
     if corpus is None:
         raise MetisError(ErrorCode.PROVIDER_UNAVAILABLE, "no corpus index is configured")

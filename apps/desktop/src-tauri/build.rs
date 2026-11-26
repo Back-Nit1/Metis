@@ -6,6 +6,7 @@ fn main() {
             "health",
             "desktop_status",
             "desktop_connection",
+            "desktop_set_session",
             "capture_state",
             "capture_cancel",
             "capture_prepare_mic",

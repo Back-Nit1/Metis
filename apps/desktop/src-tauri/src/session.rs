@@ -354,6 +354,7 @@ pub struct Controller {
     src: Box<dyn AudioSource>,
     rec: Option<Arc<Mutex<Recorder>>>,
     backend: Arc<dyn Backend>,
+    active_backend: Option<Arc<dyn Backend>>,
     inserter: Arc<dyn TextInserter>,
     emit: Arc<dyn Emit>,
     shared: Arc<Mutex<Snapshot>>,
@@ -386,6 +387,7 @@ impl Controller {
             src,
             rec: None,
             backend,
+            active_backend: None,
             inserter,
             emit,
             shared,
@@ -415,11 +417,15 @@ impl Controller {
         self.emit.emit(&snap);
     }
 
+    fn capture_backend(&self) -> &Arc<dyn Backend> {
+        self.active_backend.as_ref().unwrap_or(&self.backend)
+    }
+
     fn fail(&mut self, step: &str, message: &str) {
         self.src.stop();
         self.rec = None;
         if let Some(active) = self.dictation.take() {
-            self.backend.dictation_cancel(&active.id);
+            self.capture_backend().dictation_cancel(&active.id);
         }
         self.cancel.store(true, Ordering::SeqCst);
         self.m.fail();
@@ -438,7 +444,7 @@ impl Controller {
     }
 
     fn start_mic(&mut self) -> Result<(), (&'static str, String)> {
-        if let Err(why) = self.backend.ready() {
+        if let Err(why) = self.capture_backend().ready() {
             let step = if why.starts_with("startup_failed") {
                 "startup_failed"
             } else {
@@ -458,7 +464,7 @@ impl Controller {
                 .focused_app()
                 .map_err(|error| ("insertion", error))?;
             let session = self
-                .backend
+                .capture_backend()
                 .dictation_create(&app)
                 .map_err(|error| ("dictation", error.message))?;
             self.dictation = Some(DictationActive {
@@ -477,6 +483,7 @@ impl Controller {
     }
 
     fn stream_dictation(&mut self) -> Result<(), (&'static str, String)> {
+        let backend = self.capture_backend().clone();
         let Some(active) = self.dictation.as_mut() else {
             return Ok(());
         };
@@ -487,8 +494,7 @@ impl Controller {
         if pcm.is_empty() {
             return Ok(());
         }
-        let chunk = self
-            .backend
+        let chunk = backend
             .dictation_audio(&active.id, &pcm)
             .map_err(|error| ("dictation", error.message))?;
         active.sent_samples = next_offset;
@@ -536,7 +542,11 @@ impl Controller {
             released,
         };
         self.cancel = Arc::new(AtomicBool::new(false));
-        let (backend, cancel, tx) = (self.backend.clone(), self.cancel.clone(), self.tx.clone());
+        let (backend, cancel, tx) = (
+            self.capture_backend().clone(),
+            self.cancel.clone(),
+            self.tx.clone(),
+        );
         let spawned = thread::Builder::new()
             .name("metis-capture-upload".into())
             .spawn(move || process(backend.as_ref(), work, &cancel, &tx));
@@ -560,7 +570,7 @@ impl Controller {
             .map_or(0, |recorder| recorder.lock().unwrap().len());
         if sample_count < MIN_SAMPLES {
             if let Some(active) = self.dictation.take() {
-                self.backend.dictation_cancel(&active.id);
+                self.capture_backend().dictation_cancel(&active.id);
             }
             self.rec = None;
             self.m.cancel();
@@ -580,7 +590,7 @@ impl Controller {
         let Some(active) = self.dictation.take() else {
             return self.fail("dictation", "dictation session is missing");
         };
-        let result = match self.backend.dictation_finish(&active.id) {
+        let result = match self.capture_backend().dictation_finish(&active.id) {
             Ok(result) => result,
             Err(error) => return self.fail("dictation", &error.message),
         };
@@ -590,6 +600,9 @@ impl Controller {
                 "dictation",
                 "fixture speech cannot be inserted as if it came from the microphone",
             );
+        }
+        if let Err(error) = self.capture_backend().ready() {
+            return self.fail("dictation", &error);
         }
         if !result.no_speech && !result.text.is_empty() {
             if let Err(error) = self.inserter.insert(&result.text) {
@@ -611,6 +624,10 @@ impl Controller {
             return;
         }
         self.route = route;
+        self.active_backend = match self.backend.bind() {
+            Ok(bound) => bound,
+            Err(error) => return self.fail("not_ready", &error),
+        };
         self.gen += 1;
         self.t_down = now;
         self.released = None;
@@ -629,7 +646,7 @@ impl Controller {
                     self.src.stop();
                     self.rec = None;
                     if let Some(active) = self.dictation.take() {
-                        self.backend.dictation_cancel(&active.id);
+                        self.capture_backend().dictation_cancel(&active.id);
                     }
                     self.publish(|s| *s = Snapshot::new(s.mic_ready));
                 }
@@ -647,12 +664,13 @@ impl Controller {
                         self.src.stop();
                         self.rec = None;
                         if let Some(active) = self.dictation.take() {
-                            self.backend.dictation_cancel(&active.id);
+                            self.capture_backend().dictation_cancel(&active.id);
                         }
                     }
                     Action::CancelWork => self.cancel.store(true, Ordering::SeqCst),
                     _ => {}
                 }
+                self.active_backend = None;
                 self.publish(|s| *s = Snapshot::new(s.mic_ready));
             }
             Msg::PrepareMic => self.prepare_mic(),
@@ -740,6 +758,9 @@ impl Controller {
             Ok(()) => {
                 self.mic_ready = true;
                 if let Some(p) = &self.mic_marker {
+                    if let Some(parent) = p.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
                     let _ = std::fs::write(p, b"ok");
                 }
                 self.m.cancel();
@@ -801,7 +822,7 @@ impl Controller {
         self.src.stop();
         self.rec = None;
         if let Some(active) = self.dictation.take() {
-            self.backend.dictation_cancel(&active.id);
+            self.capture_backend().dictation_cancel(&active.id);
         }
     }
 }

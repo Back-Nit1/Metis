@@ -1,6 +1,7 @@
-//! Metis desktop shell: window + supervised local stack (speech, API, worker).
+//! Metis desktop client: native capture and display, authenticated server processing.
 pub mod audio;
 pub mod backend;
+pub mod hosted;
 pub mod hud;
 pub mod insertion;
 pub mod machine;
@@ -10,8 +11,7 @@ pub mod stack;
 
 use serde::Serialize;
 use session::{Emit, Handle, Msg, Snapshot};
-use stack::{Config, LocalAi, Stack, StackStatus};
-use std::path::PathBuf;
+use stack::{Stack, StackStatus};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -21,12 +21,10 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 /// Event the HUD listens to; payload is a sanitized [`Snapshot`].
 pub const STATE_EVENT: &str = "capture:state";
 
-/// Name of the packaged backend (under the `backend/` bundle resource).
-const BACKEND: &str = "metis-backend";
-
 #[derive(Default)]
 struct AppState {
     stack: Arc<Mutex<Option<Stack>>>,
+    hosted: Mutex<Option<Arc<hosted::Hosted>>>,
     startup_error: Mutex<Option<String>>,
     capture: Mutex<Option<(Handle, JoinHandle<()>)>>,
 }
@@ -91,6 +89,8 @@ struct DesktopStatus {
     /// Sanitised aggregate health; None only if startup itself failed.
     stack: Option<StackStatus>,
     error: Option<String>,
+    authenticated: bool,
+    recording_allowed: bool,
 }
 
 /// Camel-case, exactly the shape `apps/web/src/lib/desktop.ts` parses.
@@ -99,6 +99,7 @@ struct DesktopStatus {
 struct ConnectionDto {
     api_base_url: String,
     bearer: String,
+    mode: &'static str,
 }
 
 #[tauri::command]
@@ -108,15 +109,19 @@ fn health() -> &'static str {
 
 #[tauri::command]
 fn desktop_status(state: tauri::State<'_, AppState>) -> DesktopStatus {
+    let authenticated = state
+        .hosted
+        .lock()
+        .ok()
+        .and_then(|h| h.as_ref().map(|h| h.authenticated()))
+        .unwrap_or(false);
     DesktopStatus {
-        mode: if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        },
+        mode: "hosted",
         version: env!("CARGO_PKG_VERSION"),
         stack: state.stack.lock().unwrap().as_ref().map(Stack::status),
         error: state.startup_error.lock().unwrap().clone(),
+        authenticated,
+        recording_allowed: authenticated,
     }
 }
 
@@ -173,7 +178,7 @@ fn show_main_window(app: tauri::AppHandle, capture_id: Option<String>) -> Result
 /// when the configured endpoint itself is invalid.
 #[tauri::command(async)]
 fn ollama_status() -> Result<native::OllamaStatus, String> {
-    Ok(native::ollama_status(&LocalAi::from_env()?))
+    Err("Model services run on the Metis server".into())
 }
 
 /// Native folder dialog; `None` when the user cancels.
@@ -197,16 +202,28 @@ fn reveal_path(path: String) -> Result<(), String> {
 /// Rejects exactly `not_ready` while the stack starts, `unavailable` when it cannot.
 #[tauri::command]
 fn desktop_connection(state: tauri::State<'_, AppState>) -> Result<ConnectionDto, String> {
-    match state.stack.lock().unwrap().as_ref() {
-        Some(stack) => stack
-            .connection()
-            .map(|c| ConnectionDto {
-                api_base_url: c.api_base_url,
-                bearer: c.bearer,
-            })
-            .map_err(str::to_string),
-        None => Err("unavailable".into()),
+    let guard = state.hosted.lock().map_err(|_| "unavailable")?;
+    let hosted = guard.as_ref().ok_or("unavailable")?;
+    Ok(ConnectionDto {
+        api_base_url: hosted.base().into(),
+        bearer: String::new(),
+        mode: "hosted",
+    })
+}
+
+#[tauri::command]
+fn desktop_set_session(
+    state: tauri::State<'_, AppState>,
+    token: Option<String>,
+) -> Result<(), String> {
+    let guard = state.hosted.lock().map_err(|_| "unavailable")?;
+    let hosted = guard.as_ref().ok_or("unavailable")?;
+    if hosted.set_token(token)? {
+        if let Some((handle, _)) = state.capture.lock().map_err(|_| "unavailable")?.as_ref() {
+            handle.send(Msg::Cancel);
+        }
     }
+    Ok(())
 }
 
 /// Visible startup error instead of a blank window.
@@ -215,15 +232,6 @@ fn error_script(msg: &str) -> String {
     format!(
         "addEventListener('DOMContentLoaded',()=>{{const d=document.createElement('div');d.setAttribute('role','alert');d.style.cssText='position:fixed;inset:0 0 auto 0;z-index:99999;background:#7f1d1d;color:#fff;padding:12px;font:14px system-ui';d.textContent='Metis desktop: '+{msg};document.body.prepend(d)}})"
     )
-}
-
-fn start_stack(resources: PathBuf, data_dir: PathBuf) -> Result<Stack, String> {
-    let backend = resources
-        .join("backend")
-        .join(format!("{BACKEND}{}", std::env::consts::EXE_SUFFIX));
-    let mut cfg = Config::production(backend, &data_dir);
-    cfg.local_ai = LocalAi::from_env()?;
-    Stack::start(cfg)
 }
 
 /// Capture uses Cmd+Option+Space. Dictation uses Cmd+Option+D. Both have
@@ -272,6 +280,7 @@ pub fn run() {
             health,
             desktop_status,
             desktop_connection,
+            desktop_set_session,
             capture_state,
             capture_cancel,
             capture_prepare_mic,
@@ -283,12 +292,21 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<AppState>();
             let data_dir = app.path().app_data_dir().map_err(|e| e.to_string());
-            let resources = app.path().resource_dir().map_err(|e| e.to_string());
-            let started = resources.and_then(|r| data_dir.clone().and_then(|d| start_stack(r, d)));
-            match started {
-                Ok(stack) => *state.stack.lock().unwrap() = Some(stack),
-                Err(e) => *state.startup_error.lock().unwrap() = Some(e),
-            }
+            // No API, worker, model or database starts on this device.
+            let hosted = match hosted::Hosted::from_env() {
+                Ok(hosted) => Arc::new(hosted),
+                Err(error) => {
+                    *state
+                        .startup_error
+                        .lock()
+                        .map_err(|_| "startup state unavailable")? = Some(error);
+                    return Ok(());
+                }
+            };
+            *state
+                .hosted
+                .lock()
+                .map_err(|_| "startup state unavailable")? = Some(hosted.clone());
             // Hidden until capture leaves Idle; see `hud::Plan`. Not focusable, so
             // showing it never takes the keyboard from the app being dictated into.
             if let Err(e) =
@@ -311,7 +329,7 @@ pub fn run() {
             // to record unless the stack reports `recording_allowed`.
             let (handle, join) = session::spawn(
                 || Box::new(audio::CpalSource::default()),
-                Arc::new(backend::HttpBackend::new(state.stack.clone())),
+                Arc::new(backend::HttpBackend::hosted(hosted)),
                 Arc::new(insertion::SystemTextInserter),
                 Arc::new(TauriEmit::new(app.handle().clone())),
                 data_dir.ok().map(|d| d.join("mic_confirmed")),
@@ -392,19 +410,22 @@ mod tests {
                 services: vec![],
             }),
             error: None,
+            authenticated: false,
+            recording_allowed: false,
         })
         .unwrap();
         assert_eq!(
             status,
-            json!({"mode":"debug","version":"0","error":null,
+            json!({"mode":"debug","version":"0","error":null,"authenticated":false,"recording_allowed":false,
                    "stack":{"state":"ready","recording_allowed":true,"services":[]}})
         );
 
         let conn = serde_json::to_value(ConnectionDto {
             api_base_url: "u".into(),
             bearer: "b".into(),
+            mode: "local",
         })
         .unwrap();
-        assert_eq!(conn, json!({"apiBaseUrl":"u","bearer":"b"}));
+        assert_eq!(conn, json!({"apiBaseUrl":"u","bearer":"b","mode":"local"}));
     }
 }

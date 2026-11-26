@@ -347,7 +347,7 @@ function DesktopGate({ children }: { children: ReactNode }) {
       <div role="status" className="max-w-sm text-center">
         <p className="font-serif text-xl font-semibold">Metis</p>
         {desktop.phase === "starting" ? (
-          <p className="mt-2 text-sm text-muted">Starting local services…</p>
+          <p className="mt-2 text-sm text-muted">Connecting to Metis…</p>
         ) : (
           <>
             <p className="mt-2 text-sm">{desktop.reason}</p>

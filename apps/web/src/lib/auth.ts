@@ -12,7 +12,10 @@
  */
 export type AuthConfig = { domain: string; clientId: string; redirectUri: string };
 
+export type FirebaseConfig = { apiKey: string; projectId: string };
+
 export type AuthMode =
+  | { kind: "firebase"; config: FirebaseConfig }
   | { kind: "none" }
   | { kind: "misconfigured"; missing: string[] }
   | { kind: "cognito"; config: AuthConfig };
@@ -22,8 +25,15 @@ export type Session = { accessToken: string; refreshToken: string | null; expire
 type Env = Record<string, string | undefined>;
 const KEYS = ["VITE_METIS_COGNITO_DOMAIN", "VITE_METIS_COGNITO_CLIENT_ID", "VITE_METIS_COGNITO_REDIRECT_URI"] as const;
 
-export function authMode(env: Env, desktop: boolean): AuthMode {
-  if (desktop) return { kind: "none" };
+export function authMode(env: Env, desktop: boolean, hosted = false): AuthMode {
+  if (desktop && !hosted) return { kind: "none" };
+  const firebaseKeys = ["VITE_METIS_FIREBASE_API_KEY", "VITE_METIS_FIREBASE_PROJECT_ID"];
+  if (hosted || firebaseKeys.some((k) => env[k]?.trim())) {
+    const missing = firebaseKeys.filter((k) => !env[k]?.trim());
+    return missing.length ? { kind: "misconfigured", missing } : {
+      kind: "firebase", config: { apiKey: env.VITE_METIS_FIREBASE_API_KEY!.trim(), projectId: env.VITE_METIS_FIREBASE_PROJECT_ID!.trim() },
+    };
+  }
   const present = KEYS.filter((k) => env[k]?.trim());
   if (present.length === 0) return { kind: "none" };
   if (present.length < KEYS.length) return { kind: "misconfigured", missing: KEYS.filter((k) => !present.includes(k)) };

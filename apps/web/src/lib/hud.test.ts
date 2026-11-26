@@ -60,7 +60,7 @@ suite("state rendering", () => {
   });
   it("labels speech and extraction independently", () => {
     const v = describe(snap({ state: "review", adapterMode: "local" }));
-    expect(v.speech).toMatch(/local model/);
+    expect(v.speech).toMatch(/processing server/);
     expect(v.extraction).toMatch(/shown in the full review/);
     expect(describe(snap({ state: "review", adapterMode: "fixture" })).speech).toMatch(/fixture/);
     expect(describe(snap({ state: "idle" })).speech).toBeNull();

@@ -28,7 +28,10 @@ from typing import Any
 from metis_contracts import (
     Connector,
     ConnectorStatus,
+    ErrorCode,
     EventType,
+    MetisError,
+    Mode,
     OutboxEvent,
     SourceArtifact,
     SourceOrigin,
@@ -214,6 +217,8 @@ def enqueue_sync(
 
 def enqueue_due_syncs(state: Any, clock: Any) -> int:
     """Called by the interactive worker on its tick. Returns syncs enqueued."""
+    if settings().mode is Mode.SERVER:
+        return 0  # Desktop filesystem connectors cannot read a shared server's disk.
     count = 0
     for key in state.due_connector_ids(now=clock.now()):
         user_id, connector_id = key.split("/", 1)
@@ -251,6 +256,8 @@ def sync_connector(
     correlation_id: str | None = None,
 ) -> int:
     """One scan pass. Returns the number of events raised."""
+    if settings().mode is Mode.SERVER:
+        raise MetisError(ErrorCode.FORBIDDEN, "local folder indexing is unavailable on the server")
     connector = state.get(user_id, "connector", connector_id)
     if connector is None or connector.status in (ConnectorStatus.PAUSED, ConnectorStatus.NEEDS_AUTH):
         return 0  # removed or paused since the request; an ERROR connector may heal on a manual sync

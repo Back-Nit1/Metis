@@ -1,3 +1,5 @@
+import { isHostedDesktop } from "./desktop";
+
 /**
  * Offline outbox for typed captures.
  *
@@ -113,6 +115,9 @@ export class Outbox {
 }
 
 function safeLocalStorage(): OutboxStorage {
+  // Hosted accounts never share a persistent device-wide draft queue. Unsent
+  // notes stay in this screen's memory and disappear at account/session change.
+  if (isHostedDesktop() || import.meta.env.VITE_METIS_FIREBASE_PROJECT_ID) return memoryStorage();
   try {
     const probe = "metis.probe";
     globalThis.localStorage.setItem(probe, "1");

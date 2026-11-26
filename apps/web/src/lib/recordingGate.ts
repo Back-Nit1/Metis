@@ -13,6 +13,11 @@ import { parseSnapshot } from "./hud";
 export type RecordingGate = { allowed: boolean; reason: string | null };
 
 export function parseGate(raw: unknown): RecordingGate {
+  const hosted = raw as { mode?: string; authenticated?: boolean; recording_allowed?: boolean } | null;
+  if (hosted?.mode === "hosted") {
+    const allowed = hosted.authenticated === true && hosted.recording_allowed === true;
+    return { allowed, reason: allowed ? null : "Sign in to the Metis server to record." };
+  }
   const stack = (raw as { stack?: Record<string, unknown> | null } | null)?.stack;
   if (!stack || typeof stack !== "object") {
     return { allowed: false, reason: "The local services have not started." };

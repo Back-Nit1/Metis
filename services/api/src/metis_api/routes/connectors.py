@@ -18,6 +18,7 @@ from metis_contracts import (
     ErrorCode,
     EventType,
     MetisError,
+    Mode,
     OutboxEvent,
     new_id,
     settings,
@@ -76,6 +77,14 @@ def _validated_config(config: ConnectorConfig) -> ConnectorConfig:
     return config.model_copy(update={"paths": list(dict.fromkeys(roots))})
 
 
+def _require_local_folder_access() -> None:
+    if settings().mode is Mode.SERVER:
+        raise MetisError(
+            ErrorCode.FORBIDDEN,
+            "local folder connectors are unavailable on the shared server",
+        )
+
+
 @router.get("/connectors", response_model=ConnectorPage)
 def list_connectors(
     ctx: Context, cursor: str | None = None, limit: int = Query(default=50, ge=1, le=200)
@@ -86,6 +95,7 @@ def list_connectors(
 @router.post("/connectors", response_model=Connector, status_code=status.HTTP_201_CREATED)
 def create_connector(body: CreateConnectorRequest, ctx: Context) -> Connector:
     """Create a local-folder connector and its first full sync in one transaction."""
+    _require_local_folder_access()
     ctx.require_idempotency_key()
     if replayed := ctx.replay():
         return Connector.model_validate(replayed)
@@ -127,9 +137,11 @@ def get_connector(connector_id: str, ctx: Context) -> Connector:
 
 @router.patch("/connectors/{connector_id}", response_model=Connector)
 def patch_connector(connector_id: str, body: UpdateConnectorRequest, ctx: Context) -> Connector:
+    connector = ctx.require("connector", connector_id, Connector)
+    if connector.kind is ConnectorKind.LOCAL_FOLDER:
+        _require_local_folder_access()
     if replayed := ctx.replay():
         return Connector.model_validate(replayed)
-    connector = ctx.require("connector", connector_id, Connector)
     if connector.revision != body.expected_revision:
         raise MetisError(
             ErrorCode.REVISION_CONFLICT,
@@ -167,10 +179,12 @@ def delete_connector(connector_id: str, ctx: Context) -> Response:
     "/connectors/{connector_id}/sync", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED
 )
 def sync_connector_now(connector_id: str, ctx: Context) -> JobAccepted:
+    connector = ctx.require("connector", connector_id, Connector)
+    if connector.kind is ConnectorKind.LOCAL_FOLDER:
+        _require_local_folder_access()
     ctx.require_idempotency_key()
     if replayed := ctx.replay():
         return JobAccepted.model_validate(replayed)
-    connector = ctx.require("connector", connector_id, Connector)
     if connector.status in (ConnectorStatus.PAUSED, ConnectorStatus.NEEDS_AUTH):
         # The worker would skip it; accepting it would be a dishonest 202.
         raise MetisError(

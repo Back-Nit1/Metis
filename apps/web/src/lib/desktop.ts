@@ -1,23 +1,13 @@
-/**
- * Desktop (Tauri) runtime connection.
- *
- * The desktop shell starts local sidecars on an ephemeral loopback port and
- * mints a per-launch bearer. Both reach the webview only through the Tauri
- * command `desktop_connection`, and live only in this module's memory: never
- * Vite env, URL, storage, logs or error text. Browser/PWA mode never touches
- * any of this.
- *
- * Command contract (implemented by the desktop owner):
- *   invoke("desktop_connection") -> { apiBaseUrl: "http://127.0.0.1:<port>", bearer: string }
- *   rejects with the string "not_ready" while sidecars start, or any other
- *   string on failure.
+/** Desktop connection supplied by Rust. Hosted is an HTTPS API with a per-user
+ * session; explicit local development uses supervised loopback services.
+ * Connection data stays in memory. Hosted startup does not require a backend.
  */
 
 export type DesktopPhase = "browser" | "starting" | "ready" | "unavailable";
 export type DesktopState = { phase: DesktopPhase; reason: string | null };
 export type Invoke = (command: string) => Promise<unknown>;
 
-type Connection = { base: string; bearer: string };
+type Connection = { base: string; bearer: string; mode: "local" | "hosted" };
 
 const LOOPBACK = /^http:\/\/127\.0\.0\.1:(\d{1,5})\/?$/;
 // Header-safe: a bearer with whitespace or control characters is malformed.
@@ -39,14 +29,16 @@ function setState(next: DesktopState): void {
 export const subscribeDesktop = (l: () => void) => (listeners.add(l), () => void listeners.delete(l));
 export const getDesktopState = (): DesktopState => state;
 
-/** Loopback API base while connected, else null. Never falls back to anything. */
+export const isHostedDesktop = (): boolean => connection?.mode === "hosted";
+
+/** Configured API base while connected; never falls back to another server. */
 export function desktopBase(): string | null {
   return connection?.base ?? null;
 }
 
-/** Authorization header for the loopback API only; `url` must be on its origin. */
+/** Authorization only for the configured API origin. */
 export function desktopAuthFor(url: string): Record<string, string> {
-  if (!connection) return {};
+  if (!connection || !connection.bearer) return {};
   try {
     return new URL(url).origin === new URL(connection.base).origin
       ? { Authorization: `Bearer ${connection.bearer}` }
@@ -56,7 +48,7 @@ export function desktopAuthFor(url: string): Record<string, string> {
   }
 }
 
-/** The loopback bearer, for handing to the sync worker by postMessage only. */
+/** The current bearer, passed to the sync worker in memory. */
 export function desktopBearer(): string | null {
   return connection?.bearer ?? null;
 }
@@ -78,12 +70,20 @@ export async function desktopCommand<T>(command: string, args?: Record<string, u
 
 export function parseConnection(raw: unknown): Connection | null {
   if (typeof raw !== "object" || raw === null) return null;
-  const { apiBaseUrl, bearer } = raw as Record<string, unknown>;
+  const { apiBaseUrl, bearer, mode } = raw as Record<string, unknown>;
   if (typeof apiBaseUrl !== "string" || typeof bearer !== "string") return null;
+  if (mode === "hosted") {
+    try {
+      const url = new URL(apiBaseUrl);
+      if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/" || bearer !== "") return null;
+      return { base: url.origin, bearer: "", mode: "hosted" };
+    } catch { return null; }
+  }
+  if (mode !== undefined && mode !== "local") return null;
   const match = LOOPBACK.exec(apiBaseUrl);
   if (!match || Number(match[1]) < 1 || Number(match[1]) > 65535) return null;
   if (!BEARER.test(bearer)) return null;
-  return { base: apiBaseUrl.replace(/\/$/, ""), bearer };
+  return { base: apiBaseUrl.replace(/\/$/, ""), bearer, mode: "local" };
 }
 
 const tauriInvoke: Invoke = (command) =>
@@ -116,13 +116,13 @@ export async function connectDesktop(
     } catch (error) {
       if (error !== "not_ready") {
         // The raw error is deliberately not shown: it is not ours to trust.
-        setState({ phase: "unavailable", reason: "The local services failed to start." });
+        setState({ phase: "unavailable", reason: "The desktop server connection is unavailable. Check the server configuration." });
         return state;
       }
     }
     await wait(Math.min(250 * 1.5 ** attempt, 2000));
   }
-  setState({ phase: "unavailable", reason: "The local services did not become ready in time." });
+  setState({ phase: "unavailable", reason: "The desktop connection did not become ready in time." });
   return state;
 }
 
@@ -136,4 +136,18 @@ export function clearDesktopConnection(): void {
 export function resetDesktopForTests(): void {
   connection = null;
   state = { phase: isDesktop() ? "starting" : "browser", reason: null };
+}
+
+/** Native capture uses the same user ID token as the webview. Fail closed if IPC fails. */
+let sessionWrite: Promise<void> = Promise.resolve();
+export async function setDesktopSession(token: string | null): Promise<void> {
+  if (!isHostedDesktop()) return;
+  if (token !== null && !BEARER.test(token)) throw new Error("Invalid session token.");
+  const write = sessionWrite.catch(() => undefined).then(async () => {
+    const result = await desktopCommand("desktop_set_session", { token });
+    if (!result.ok) throw new Error("The desktop session could not be updated.");
+    if (connection?.mode === "hosted") connection.bearer = token ?? "";
+  });
+  sessionWrite = write;
+  await write;
 }

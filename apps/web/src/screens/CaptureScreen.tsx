@@ -451,7 +451,7 @@ export function CaptureScreen() {
           )}
           {!gate.allowed && (
             <Notice tone="info" live>
-              {gate.reason ?? "Checking the local services…"}
+              {gate.reason ?? "Checking the connection…"}
             </Notice>
           )}
           {!micReady && (

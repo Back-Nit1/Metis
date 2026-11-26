@@ -19,11 +19,12 @@ import {
   type Session,
 } from "../lib/auth";
 import { setAuthToken, setCookieSession, setUnauthenticatedHandler } from "../lib/api";
-import { isDesktop } from "../lib/desktop";
+import { FirebaseGate } from "./FirebaseGate";
+import { isDesktop, isHostedDesktop } from "../lib/desktop";
 import { resetClientData } from "../lib/reset";
 
 type AuthValue = { signedIn: boolean; signOut: (() => void) | null };
-const AuthContext = createContext<AuthValue>({ signedIn: false, signOut: null });
+export const AuthContext = createContext<AuthValue>({ signedIn: false, signOut: null });
 export const useAuth = () => useContext(AuthContext);
 
 // The authorization code is single use; StrictMode runs effects twice in dev.
@@ -205,7 +206,8 @@ function PasswordGate({ children }: { children: ReactNode }) {
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const env = import.meta.env as Record<string, string | undefined>;
-  const mode = authMode(env, isDesktop());
+  const mode = authMode(env, isDesktop(), isHostedDesktop());
+  if (mode.kind === "firebase") return <FirebaseGate config={mode.config}>{children}</FirebaseGate>;
   if (mode.kind === "none")
     return env.VITE_METIS_LOGIN === "password" && !isDesktop() ? (
       <PasswordGate>{children}</PasswordGate>

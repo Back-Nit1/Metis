@@ -32,6 +32,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import threading
@@ -214,14 +215,31 @@ class _Handler(BaseHTTPRequestHandler):
         parts = self.path.split("/")
         if len(parts) != 5 or parts[:4] != ["", "v1", "flow", "sessions"]:
             return self._error(ErrorCode.NOT_FOUND, "not found")
-        self.server.flow.end(parts[4])
+        try:
+            self.server.flow.end(parts[4], owner=self._flow_owner())
+        except MetisError as exc:
+            return self._error(exc.code, exc.message)
         self._send(200, {"ok": True})
+
+    def _flow_owner(self) -> str:
+        # Only a holder of the loopback speech secret reaches this point. The
+        # API supplies a MAC of the authenticated subject; legacy local
+        # desktop callers omit the header and occupy a separate owner scope.
+        owner = self.headers.get("X-Metis-Flow-Owner")
+        if owner is None:
+            return "local"
+        if not re.fullmatch(r"[0-9a-f]{64}", owner):
+            raise MetisError(ErrorCode.VALIDATION_FAILED, "invalid dictation owner")
+        return owner
 
     def _body(self, limit: int) -> bytes | None:
         try:
             length = int(self.headers.get("Content-Length", ""))
         except ValueError:
             self._error(ErrorCode.VALIDATION_FAILED, "Content-Length is required")
+            return None
+        if length < 0:
+            self._error(ErrorCode.VALIDATION_FAILED, "invalid Content-Length")
             return None
         if length > limit:
             self._error(ErrorCode.UPLOAD_TOO_LARGE, f"body is over the {limit} byte limit")
@@ -248,14 +266,24 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _flow_post(self, rest: list[str]) -> None:
         flow = self.server.flow
+        finishing_id: str | None = None
+        owner = "local"
         try:
+            owner = self._flow_owner()
             if not rest:  # create
                 raw = self._body(MAX_JSON_BODY)
                 if raw is None:
                     return
                 req = json.loads(raw or b"{}")
+                if not isinstance(req, dict) or set(req) - {"language", "app", "settings"}:
+                    raise ValueError("invalid dictation request")
+                if any(
+                    value is not None and (not isinstance(value, str) or len(value) > 200)
+                    for value in (req.get("language"), req.get("app"))
+                ):
+                    raise ValueError("invalid dictation request")
                 cfg = FlowSettings.model_validate(req.get("settings") or {})
-                s = flow.create(req.get("language"), req.get("app"), cfg)
+                s = flow.create(req.get("language"), req.get("app"), cfg, owner=owner)
                 return self._send(
                     200, {"session_id": s.id, "max_seconds": settings().limits.max_audio_seconds}
                 )
@@ -266,21 +294,23 @@ class _Handler(BaseHTTPRequestHandler):
                 chunk = self._body(settings().limits.max_upload_bytes)
                 if chunk is None:
                     return
-                s = flow.append(session_id, chunk)
+                s, partial_due = flow.append(session_id, chunk, owner=owner)
                 partial = None
-                if s.partial_due():
-                    s.partial_at = len(s.pcm)
+                if partial_due:
                     out = self._decode(bytes(s.pcm), s.language, self._terms(s.cfg), wait=0)
                     if out is not None and out[0]:
                         partial = {"text": out[0], "provisional": True, "at_seconds": round(s.seconds, 1)}
                 return self._send(200, {"seconds": round(s.seconds, 2), "partial": partial})
             if action == "finish":
-                s = flow.get(session_id)
+                s = flow.begin_finish(session_id, owner=owner)
+                finishing_id = session_id
                 started = time.monotonic()
                 out = self._decode(bytes(s.pcm), s.language, self._terms(s.cfg), wait=FINISH_WAIT_SECONDS)
                 if out is None:
                     return self._error(ErrorCode.RATE_LIMITED, "decoder is busy", retry_after_seconds=1)
-                flow.end(session_id)
+                # Cancellation or expiry while decoding discards the result.
+                flow.end(session_id, owner=owner)
+                finishing_id = None
                 text, segments, meta = out
                 meta["adapter_mode"] = (
                     "local" if meta.get("adapter_mode") == "cloud" else meta["adapter_mode"]
@@ -328,12 +358,15 @@ class _Handler(BaseHTTPRequestHandler):
                 )
             return self._error(ErrorCode.NOT_FOUND, "not found")
         except MetisError as exc:
-            return self._error(exc.code, exc.message)
+            return self._error(exc.code, exc.message, retry_after_seconds=exc.retry_after_seconds)
         except ValueError:  # bad JSON or an invalid FlowSettings body
             return self._error(ErrorCode.VALIDATION_FAILED, "invalid dictation request")
         except Exception:
             log.exception("flow request failed")
             return self._error(ErrorCode.INTERNAL, "dictation failed")
+        finally:
+            if finishing_id is not None:
+                flow.retry_finish(finishing_id, owner=owner)
 
     @staticmethod
     def _terms(cfg: FlowSettings) -> tuple[str, ...]:

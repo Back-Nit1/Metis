@@ -60,7 +60,7 @@ import {
   type UploadInstructions,
   type UsageResponse,
 } from "../contracts/metis";
-import { desktopAuthFor, desktopBase, desktopBearer, isDesktop } from "./desktop";
+import { desktopAuthFor, desktopBase, desktopBearer, isDesktop, isHostedDesktop } from "./desktop";
 
 export const API_BASE: string =
   (import.meta.env?.VITE_METIS_API as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000";
@@ -140,7 +140,7 @@ export const subscribeAuthToken = (l: () => void) => (tokenListeners.add(l), () 
 export function syncCredentials(): { baseUrl: string; token: string | null } | null {
   if (isDesktop()) {
     const base = desktopBase();
-    return base ? { baseUrl: base, token: desktopBearer() } : null;
+    return base ? { baseUrl: base, token: isHostedDesktop() ? authToken : desktopBearer() } : null;
   }
   const page = globalThis.location?.href ?? "http://localhost/";
   return { baseUrl: new URL(API_BASE || "/", page).href.replace(/\/$/, ""), token: authToken };
@@ -158,7 +158,10 @@ export function setUnauthenticatedHandler(handler: (() => void) | null): void {
 }
 
 function authHeaders(url: string): Record<string, string> {
-  return isDesktop() ? desktopAuthFor(url) : authToken ? { Authorization: `Bearer ${authToken}` } : {};
+  if (isDesktop() && !isHostedDesktop()) return desktopAuthFor(url);
+  const page = globalThis.location?.href;
+  const sameOrigin = new URL(url, page).origin === new URL(baseUrl() || "/", page).origin;
+  return sameOrigin && authToken ? { Authorization: `Bearer ${authToken}` } : {};
 }
 
 /** Server-supplied work packet for a project (the route has no response model in the contract). */
@@ -192,6 +195,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   let response: Response;
   try {
     response = await fetch(url, {
+      redirect: "error",
       method: options.method ?? "GET",
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -272,7 +276,7 @@ export const api = {
     const own: Record<string, string> = local
       ? {
           "X-Correlation-Id": newCorrelationId(),
-          ...(isDesktop() ? desktopAuthFor(url) : authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          ...authHeaders(url),
         }
       : {};
     let response: Response;
@@ -286,6 +290,7 @@ export const api = {
         form.append("file", blob);
       }
       response = await fetch(url, {
+        redirect: "error",
         method: upload.method ?? "PUT",
         headers: fields
           ? { ...(upload.headers ?? {}), ...own }
@@ -402,7 +407,7 @@ export const api = {
     const url = `${baseUrl()}/v1/exports/${jobId}/download`;
     let response: Response;
     try {
-      response = await fetch(url, { headers: { "X-Correlation-Id": newCorrelationId(), ...authHeaders(url) } });
+      response = await fetch(url, { redirect: "error", headers: { "X-Correlation-Id": newCorrelationId(), ...authHeaders(url) } });
     } catch (cause) {
       throw new OfflineError(cause);
     }

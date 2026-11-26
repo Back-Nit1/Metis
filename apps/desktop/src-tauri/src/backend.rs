@@ -1,7 +1,6 @@
 //! The Rust side of the capture API flow:
-//! `POST /v1/captures` -> `PUT` upload -> `POST /v1/captures/{id}/complete`
-//! -> poll `GET /v1/captures/{id}`. Base URL and bearer come straight from the
-//! [`Stack`]; they never pass through the webview and never appear in errors.
+//! `POST /v1/captures` -> upload -> complete -> poll, and authenticated dictation.
+use crate::hosted::Hosted;
 use crate::stack::Stack;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -81,6 +80,10 @@ pub struct DictationResult {
 }
 
 pub trait Backend: Send + Sync {
+    /// Bind an operation to its current authenticated session, when applicable.
+    fn bind(&self) -> Result<Option<Arc<dyn Backend>>, String> {
+        Ok(None)
+    }
     /// Ok only when the stack reports `recording_allowed`; otherwise why not.
     fn ready(&self) -> Result<(), String>;
     fn create(&self, req: &CreateReq) -> Result<Created, ApiError>;
@@ -101,10 +104,19 @@ pub trait Backend: Send + Sync {
     fn dictation_cancel(&self, _id: &str) {}
 }
 
-/// Real HTTP backend over the supervised loopback API.
+/// Native HTTP client for either a hosted account or an explicit local test stack.
 pub struct HttpBackend {
-    stack: Arc<Mutex<Option<Stack>>>,
+    endpoint: Runtime,
     agent: ureq::Agent,
+}
+
+#[derive(Clone)]
+enum Runtime {
+    Local(Arc<Mutex<Option<Stack>>>),
+    Hosted {
+        hosted: Arc<Hosted>,
+        generation: Option<u64>,
+    },
 }
 
 struct Endpoint<'a> {
@@ -113,35 +125,80 @@ struct Endpoint<'a> {
 }
 
 impl HttpBackend {
+    /// Retained for the isolated local-stack integration tests.
     pub fn new(stack: Arc<Mutex<Option<Stack>>>) -> Self {
+        Self::with_runtime(Runtime::Local(stack))
+    }
+
+    pub fn hosted(hosted: Arc<Hosted>) -> Self {
+        Self::with_runtime(Runtime::Hosted {
+            hosted,
+            generation: None,
+        })
+    }
+
+    fn with_runtime(endpoint: Runtime) -> Self {
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
+            .max_redirects(0)
             .timeout_global(Some(Duration::from_secs(30)))
             .build()
             .into();
-        Self { stack, agent }
+        Self { endpoint, agent }
     }
 
     fn conn(&self) -> Result<(String, String), ApiError> {
-        match self.stack.lock().unwrap().as_ref() {
-            Some(s) => s
-                .connection()
-                .map(|c| (c.api_base_url, c.bearer))
-                .map_err(|e| ApiError::new(e == "not_ready", format!("local API {e}"))),
-            None => Err(ApiError::new(false, "local API unavailable")),
+        match &self.endpoint {
+            Runtime::Local(stack) => match stack
+                .lock()
+                .map_err(|_| ApiError::new(false, "local API unavailable"))?
+                .as_ref()
+            {
+                Some(s) => s
+                    .connection()
+                    .map(|c| (c.api_base_url, c.bearer))
+                    .map_err(|e| ApiError::new(e == "not_ready", format!("local API {e}"))),
+                None => Err(ApiError::new(false, "local API unavailable")),
+            },
+            Runtime::Hosted { hosted, generation } => {
+                let generation = generation
+                    .ok_or_else(|| ApiError::new(false, "voice capture has no session"))?;
+                let token = hosted
+                    .token(generation)
+                    .map_err(|e| ApiError::new(false, e))?;
+                Ok((hosted.base().to_string(), token))
+            }
         }
     }
 
     fn speech_conn(&self) -> Result<(String, String), ApiError> {
-        match self.stack.lock().unwrap().as_ref() {
-            Some(stack) => stack
-                .speech_connection()
-                .map(|connection| (connection.base_url, connection.bearer))
-                .map_err(|error| {
-                    ApiError::new(error == "not_ready", format!("local speech {error}"))
-                }),
-            None => Err(ApiError::new(false, "local speech unavailable")),
+        match &self.endpoint {
+            Runtime::Hosted { .. } => self.conn(),
+            Runtime::Local(stack) => match stack
+                .lock()
+                .map_err(|_| ApiError::new(false, "local speech unavailable"))?
+                .as_ref()
+            {
+                Some(s) => s
+                    .speech_connection()
+                    .map(|c| (c.base_url, c.bearer))
+                    .map_err(|e| ApiError::new(e == "not_ready", format!("local speech {e}"))),
+                None => Err(ApiError::new(false, "local speech unavailable")),
+            },
         }
+    }
+
+    fn still_bound(&self) -> Result<(), ApiError> {
+        if let Runtime::Hosted {
+            hosted,
+            generation: Some(generation),
+        } = &self.endpoint
+        {
+            hosted
+                .token(*generation)
+                .map_err(|e| ApiError::new(false, e))?;
+        }
+        Ok(())
     }
 
     /// One request; maps HTTP status to ApiError carrying only the server's
@@ -192,23 +249,33 @@ impl HttpBackend {
         extra: &HashMap<String, String>,
         body: Body<'_>,
     ) -> Result<Value, ApiError> {
-        let url = if path_or_url.starts_with("http") {
-            path_or_url.to_string()
-        } else {
-            format!("{}{path_or_url}", endpoint.base)
-        };
-        // Credentials only ever go to our own loopback API.
-        if !url.starts_with(endpoint.base) {
-            return Err(ApiError::new(false, "refusing a non-local upload target"));
+        let base = url::Url::parse(endpoint.base).map_err(bad)?;
+        let url = base.join(path_or_url).map_err(bad)?;
+        // Reject origin confusion, userinfo, and redirects before attaching the token.
+        if url.origin() != base.origin()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.fragment().is_some()
+        {
+            return Err(ApiError::new(
+                false,
+                "refusing an upload target outside the server origin",
+            ));
         }
         let mut req = ureq::http::Request::builder()
             .method(method)
-            .uri(&url)
+            .uri(url.as_str())
             .header("Authorization", format!("Bearer {}", endpoint.bearer));
         if let Some(k) = key {
             req = req.header("Idempotency-Key", k);
         }
         for (k, v) in extra {
+            if k.eq_ignore_ascii_case("authorization") || k.eq_ignore_ascii_case("host") {
+                return Err(ApiError::new(
+                    false,
+                    "invalid server-supplied upload header",
+                ));
+            }
             req = req.header(k.as_str(), v.as_str());
         }
         let resp = match body {
@@ -225,6 +292,7 @@ impl HttpBackend {
             ),
         };
         let mut resp = resp.map_err(|e| ApiError::new(true, format!("connection failed: {e}")))?;
+        self.still_bound()?;
         let status = resp.status().as_u16();
         let text = resp.body_mut().read_to_string().unwrap_or_default();
         if (200..300).contains(&status) {
@@ -255,32 +323,39 @@ pub fn clip(s: &str, n: usize) -> String {
 }
 
 impl Backend for HttpBackend {
-    fn ready(&self) -> Result<(), String> {
-        let guard = self.stack.lock().unwrap();
-        let Some(stack) = guard.as_ref() else {
-            return Err("startup_failed: the local stack did not start".into());
-        };
-        let st = stack.status();
-        if st.recording_allowed {
-            return Ok(());
+    fn bind(&self) -> Result<Option<Arc<dyn Backend>>, String> {
+        match &self.endpoint {
+            Runtime::Hosted { hosted, .. } => {
+                Ok(Some(Arc::new(Self::with_runtime(Runtime::Hosted {
+                    hosted: hosted.clone(),
+                    generation: Some(hosted.generation()?),
+                }))))
+            }
+            Runtime::Local(_) => Ok(None),
         }
-        let blocker = st
-            .services
-            .iter()
-            .find(|s| s.phase != crate::stack::Phase::Ready)
-            .map(|s| {
-                format!(
-                    "{} is {:?}{}",
-                    s.name,
-                    s.phase,
-                    s.detail
-                        .as_deref()
-                        .map(|d| format!(": {}", clip(d, 160)))
-                        .unwrap_or_default()
-                )
-            })
-            .unwrap_or_else(|| format!("stack is {}", st.state));
-        Err(format!("not_ready: {blocker}"))
+    }
+
+    fn ready(&self) -> Result<(), String> {
+        match &self.endpoint {
+            Runtime::Hosted { hosted, generation } => match generation {
+                Some(generation) => hosted.token(*generation).map(|_| ()),
+                None => hosted.generation().map(|_| ()),
+            },
+            Runtime::Local(stack) => {
+                let guard = stack
+                    .lock()
+                    .map_err(|_| "startup_failed: local stack unavailable")?;
+                let Some(stack) = guard.as_ref() else {
+                    return Err("startup_failed: the local stack did not start".into());
+                };
+                let st = stack.status();
+                if st.recording_allowed {
+                    Ok(())
+                } else {
+                    Err(format!("not_ready: stack is {}", st.state))
+                }
+            }
+        }
     }
 
     fn create(&self, r: &CreateReq) -> Result<Created, ApiError> {

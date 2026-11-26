@@ -8,6 +8,7 @@
     "allow-health",
     "allow-desktop-status",
     "allow-desktop-connection",
+    "allow-desktop-set-session",
     "allow-capture-state",
     "allow-capture-cancel",
     "allow-capture-prepare-mic",

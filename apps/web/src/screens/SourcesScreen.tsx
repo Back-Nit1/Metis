@@ -13,7 +13,7 @@ import { Card, Chip, Empty, Loading, Notice, PageHeader, SectionHeading } from "
 import { Field, inputClass } from "../components/Field";
 import { useSession } from "../app/session";
 import { api } from "../lib/api";
-import { desktopCommand, isDesktop } from "../lib/desktop";
+import { isHostedDesktop, desktopCommand, isDesktop } from "../lib/desktop";
 import { timeLabel } from "../lib/format";
 import { mutationError } from "../lib/mutationError";
 import {
@@ -27,6 +27,8 @@ import {
   type OllamaStatus,
 } from "../lib/sources";
 import { useChanges, useSync } from "../lib/useSync";
+
+const hostedSources = () => isHostedDesktop() || !!import.meta.env.VITE_METIS_FIREBASE_PROJECT_ID;
 
 const EMPTY_DRAFT: FolderDraft = { title: "", paths: "", include: "", exclude: "" };
 const KIND_LABEL: Record<string, string> = { local_folder: "Folder", gmail: "Gmail", gdrive: "Drive" };
@@ -268,7 +270,7 @@ export function SourcesScreen() {
   useEffect(() => {
     void loadConnectors();
     api.queue().then(setFetchedQueue, () => undefined);
-    void desktopCommand<OllamaStatus>("ollama_status").then((r) => r.ok && setOllama(r.value));
+    if (!hostedSources()) void desktopCommand<OllamaStatus>("ollama_status").then((r) => r.ok && setOllama(r.value));
   }, [loadConnectors]);
   useChanges(["connector", "source"], () => void loadConnectors());
   // Dead letters are not entities in the change feed; their count in the queue stats is.
@@ -285,7 +287,7 @@ export function SourcesScreen() {
         sub="Folders Metis reads and indexes so search and plans can cite them. Originals are never changed."
       />
       {say && <Notice tone={say.tone} live>{say.text}</Notice>}
-      {keywordOnly(ollama) && (
+      {!hostedSources() && keywordOnly(ollama) && (
         <Notice tone="warn">
           Keyword search only: {ollama?.available ? "the embedding model is not installed in Ollama" : "Ollama is not running"}, so files are matched by words and names, not meaning.
         </Notice>
@@ -332,7 +334,7 @@ export function SourcesScreen() {
               </ul>
             )}
           </section>
-          <AddFolder onAdded={() => void loadConnectors()} />
+          {!hostedSources() && <AddFolder onAdded={() => void loadConnectors()} />}
         </div>
 
         <aside className="mt-6 flex flex-col gap-6 lg:mt-0">

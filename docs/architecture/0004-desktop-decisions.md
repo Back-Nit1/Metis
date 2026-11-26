@@ -1,6 +1,6 @@
 # ADR 0004 — desktop shell decisions
 
-Status: accepted 2026-10-07 (coordinator). Spec: `docs/superpowers/specs/2026-10-06-metis-desktop-push-to-talk-design.md`.
+Status: accepted 2026-10-07 (coordinator). Desktop runtime/storage decisions superseded by [ADR 0006](0006-hosted-desktop.md) on 2026-11-26. Spec: `docs/superpowers/specs/2026-10-06-metis-desktop-push-to-talk-design.md`.
 
 1. **Sidecars.** Prototype first (prompt 11/16). Default plan: uv-managed
    Python runtime per target triple, launched as Tauri `externalBin`; PyInstaller

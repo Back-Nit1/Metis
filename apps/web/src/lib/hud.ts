@@ -93,7 +93,7 @@ export const ERROR_COPY: Record<ErrorStep | "unknown", ErrorCopy> = {
   mic_permission: { title: "Microphone blocked", detail: "Allow microphone access for Metis in system settings, then enable it from the main window.", retryable: false },
   audio_device: { title: "No usable microphone", detail: "Check the input device and try again. Nothing was recorded.", retryable: true },
   audio: { title: "Audio stopped", detail: "The microphone stream ended unexpectedly. Nothing was saved.", retryable: true },
-  create: { title: "Could not start the note", detail: "The local API refused the request. Nothing was uploaded.", retryable: true },
+  create: { title: "Could not start the note", detail: "The Metis API refused the request. Nothing was uploaded.", retryable: true },
   upload: { title: "Upload failed", detail: "The audio was not sent. Nothing was transcribed.", retryable: true },
   complete: { title: "Upload not confirmed", detail: "The server did not confirm the audio. It is not transcribed.", retryable: true },
   poll: { title: "Lost contact with the API", detail: "Progress cannot be read. Check the main window for the note.", retryable: false },
@@ -126,7 +126,7 @@ export function formatClock(ms: number): string {
 /** Speech adapter label. adapterMode is the ASR adapter as the API reports it. */
 export function speechLabel(mode: HudSnapshot["adapterMode"]): string | null {
   if (mode === "fixture") return "Speech: fixture (canned text, not your voice)";
-  if (mode === "local") return "Speech: local model on this Mac";
+  if (mode === "local") return "Speech: model on the processing server";
   if (mode === "cloud") return "Speech: cloud";
   return null;
 }

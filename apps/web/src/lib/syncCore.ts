@@ -167,6 +167,7 @@ export class SyncLoop {
     let response: Response;
     try {
       response = await this.deps.fetch(changesUrl(this.baseUrl, this.cursor, wait), {
+        redirect: "error",
         headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
         signal: timeout.signal,
       });

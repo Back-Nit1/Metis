@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -37,6 +38,9 @@ from axe_playwright_python.sync_playwright import Axe
 ROOT = Path(__file__).resolve().parents[3]
 ARTIFACTS = ROOT / "ops" / "qa-artifacts"
 RESULTS = ARTIFACTS / "results.jsonl"
+# "<owner pid> <pgid>" per server group this harness started; lets the next run
+# reap groups a crashed or killed run (no teardown) left behind.
+PIDFILE = Path(tempfile.gettempdir()) / "metis-qa-servers.pids"
 
 VIEWPORTS = {
     "desktop": {"viewport": {"width": 1280, "height": 800}},
@@ -98,6 +102,43 @@ def _wait(url: str, timeout: float = 60) -> None:
     raise RuntimeError(f"{url} did not come up")
 
 
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _kill_group(pgid: int) -> None:
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pgid, sig)
+        for _ in range(20):
+            if not _alive(pgid):
+                return
+            time.sleep(0.1)
+
+
+def _reap_stale_servers() -> None:
+    """Kill server groups from earlier runs whose pytest owner is gone."""
+    if not PIDFILE.exists():
+        return
+    keep = []
+    for line in PIDFILE.read_text().splitlines():
+        owner, pgid = map(int, line.split())
+        if _alive(owner):
+            keep.append(line)  # a concurrent run still owns it
+            continue
+        # Any member still running our code (the vite child can outlive pnpm);
+        # never signal a recycled group that is not ours.
+        if subprocess.run(["pgrep", "-g", str(pgid), "-f", "metis"], capture_output=True).returncode == 0:
+            _kill_group(pgid)
+    PIDFILE.write_text("".join(f"{line}\n" for line in keep))
+
+
 class Stack:
     def __init__(self, web: str, api: str):
         self.web, self.api = web, api
@@ -111,6 +152,7 @@ def stack():
     if os.environ.get("METIS_QA_USE_RUNNING"):  # reuse `make dev` on 5173/8000
         yield Stack("http://localhost:5173", "http://localhost:8000")
         return
+    _reap_stale_servers()
     tmp = tempfile.mkdtemp(prefix="metis-qa-")
     api_port, web_port = _free_port(), _free_port()
     env = {
@@ -133,6 +175,7 @@ def stack():
             cwd=ROOT,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         ),
         subprocess.Popen(
             [sys.executable, "-m", "metis_pipeline.local_worker", "--interval", "0.5"],
@@ -140,6 +183,7 @@ def stack():
             cwd=ROOT,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         ),
         subprocess.Popen(
             ["pnpm", "--filter", "@metis/web", "exec", "vite", "--port", str(web_port), "--strictPort"],
@@ -147,15 +191,19 @@ def stack():
             cwd=ROOT,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         ),
     ]
+    with PIDFILE.open("a") as f:
+        f.writelines(f"{os.getpid()} {p.pid}\n" for p in procs)
     try:
         _wait(f"{api_url}/v1/health")
         _wait(f"http://localhost:{web_port}/")
         yield Stack(f"http://localhost:{web_port}", api_url)
     finally:
+        # terminate() alone only reached the pnpm wrapper and orphaned vite.
         for p in procs:
-            p.terminate()
+            _kill_group(p.pid)
 
 
 @pytest.fixture(params=PROFILES, ids=lambda p: f"{p[0]}-{p[1]}", autouse=True)

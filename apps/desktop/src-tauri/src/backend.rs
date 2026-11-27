@@ -137,6 +137,48 @@ impl HttpBackend {
         })
     }
 
+    /// Bound to the current session: a sign-out or account switch stops it.
+    pub fn hosted_bound(hosted: Arc<Hosted>) -> Result<Self, String> {
+        let generation = hosted.generation()?;
+        Ok(Self::with_runtime(Runtime::Hosted {
+            hosted,
+            generation: Some(generation),
+        }))
+    }
+
+    /// `POST /v1/connectors/{id}/manifest`: which listed files the server needs.
+    pub fn folder_manifest(&self, connector_id: &str, listing: Value) -> Result<Value, ApiError> {
+        self.send(
+            "POST",
+            &format!("/v1/connectors/{connector_id}/manifest"),
+            None,
+            &HashMap::new(),
+            Body::Json(listing),
+        )
+    }
+
+    /// `PUT /v1/connectors/{id}/files?path=..&modified_ns=..` with the raw bytes.
+    pub fn folder_upload(
+        &self,
+        connector_id: &str,
+        path: &str,
+        modified_ns: u64,
+        bytes: &[u8],
+    ) -> Result<(), ApiError> {
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("path", path)
+            .append_pair("modified_ns", &modified_ns.to_string())
+            .finish();
+        self.send(
+            "PUT",
+            &format!("/v1/connectors/{connector_id}/files?{query}"),
+            None,
+            &HashMap::new(),
+            Body::Bytes(bytes, "application/octet-stream"),
+        )
+        .map(|_| ())
+    }
+
     fn with_runtime(endpoint: Runtime) -> Self {
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)

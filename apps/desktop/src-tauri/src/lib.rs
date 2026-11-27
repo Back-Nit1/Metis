@@ -1,6 +1,7 @@
 //! Metis desktop client: native capture and display, authenticated server processing.
 pub mod audio;
 pub mod backend;
+pub mod folders;
 pub mod hosted;
 pub mod hud;
 pub mod insertion;
@@ -181,16 +182,56 @@ fn ollama_status() -> Result<native::OllamaStatus, String> {
     Err("Model services run on the Metis server".into())
 }
 
-/// Native folder dialog; `None` when the user cancels.
+fn approved_folders_file(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("approved-folders.json"))
+}
+
+/// Native folder dialog; `None` when the user cancels. A picked folder is
+/// recorded as approved for `sync_folder`.
 #[tauri::command]
 async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
+    let dialog = app.clone();
     let picked =
-        tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
+        tauri::async_runtime::spawn_blocking(move || dialog.dialog().file().blocking_pick_folder())
             .await
             .ok()
             .flatten()?;
-    picked.into_path().ok()?.into_os_string().into_string().ok()
+    let path = picked
+        .into_path()
+        .ok()?
+        .into_os_string()
+        .into_string()
+        .ok()?;
+    folders::approve(&approved_folders_file(&app).ok()?, &path).ok()?;
+    Some(path)
+}
+
+/// List the connector's folders and upload what the server asks for. Every
+/// folder must have been picked in the native dialog on this Mac.
+#[tauri::command(async)]
+fn sync_folder(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    connector_id: String,
+    paths: Vec<String>,
+) -> Result<folders::Report, String> {
+    let approved = folders::approved(&approved_folders_file(&app)?);
+    if paths.is_empty() || !paths.iter().all(|p| approved.contains(p)) {
+        return Err("choose the folder with “Choose folder…” on this Mac first".into());
+    }
+    let hosted = state
+        .hosted
+        .lock()
+        .map_err(|_| "unavailable")?
+        .clone()
+        .ok_or("unavailable")?;
+    let backend = backend::HttpBackend::hosted_bound(hosted)?;
+    folders::sync(&backend, &connector_id, &paths)
 }
 
 /// Reveal an absolute, existing path in Finder / Explorer / the file manager.
@@ -287,6 +328,7 @@ pub fn run() {
             show_main_window,
             ollama_status,
             pick_folder,
+            sync_folder,
             reveal_path
         ])
         .setup(|app| {

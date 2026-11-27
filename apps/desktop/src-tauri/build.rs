@@ -13,6 +13,7 @@ fn main() {
             "show_main_window",
             "ollama_status",
             "pick_folder",
+            "sync_folder",
             "reveal_path",
         ]),
     ))

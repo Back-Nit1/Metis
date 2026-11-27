@@ -35,6 +35,21 @@ const KIND_LABEL: Record<string, string> = { local_folder: "Folder", gmail: "Gma
 const TONE_CLASS = { good: "text-good", warn: "text-warn", bad: "text-bad", info: "text-muted" } as const;
 
 type Say = { tone: "good" | "warn" | "bad" | "info"; text: string } | null;
+type SyncReport = { listed: number; uploaded: number; failed: number; tombstoned: number; rejected: number };
+
+/**
+ * The shared server never reads this Mac's disk: the desktop app lists the
+ * folder and uploads what changed. Sent is not indexed, so it says "sent".
+ */
+async function syncFromDesktop(c: Connector): Promise<Say> {
+  const r = await desktopCommand<SyncReport>("sync_folder", { connectorId: c.id, paths: c.config?.paths ?? [] });
+  if (!r.ok) return { tone: "bad", text: `“${c.title}” did not sync: ${r.error ?? "the desktop app could not read the folder"}.` };
+  const { listed, uploaded, failed, tombstoned } = r.value;
+  const parts = [`Sent ${uploaded} changed file${uploaded === 1 ? "" : "s"} of ${listed} from “${c.title}”`];
+  if (tombstoned) parts.push(`${tombstoned} removed`);
+  if (failed) parts.push(`${failed} could not be sent`);
+  return { tone: failed ? "warn" : "info", text: `${parts.join("; ")}. Sent files become searchable as they are indexed.` };
+}
 
 function AddFolder({ onAdded }: { onAdded: (c: Connector) => void }) {
   const [draft, setDraft] = useState<FolderDraft>(EMPTY_DRAFT);
@@ -69,7 +84,11 @@ function AddFolder({ onAdded }: { onAdded: (c: Connector) => void }) {
       const created = await api.createConnector(built.request, key);
       setDraft(EMPTY_DRAFT);
       setKey(crypto.randomUUID());
-      setSay({ tone: "good", text: `Added “${created.title}”. The first sync is queued; files become searchable as they are indexed.` });
+      setSay(
+        isHostedDesktop()
+          ? await syncFromDesktop(created)
+          : { tone: "good", text: `Added “${created.title}”. The first sync is queued; files become searchable as they are indexed.` },
+      );
       onAdded(created);
     } catch (cause) {
       setSay({ tone: "bad", text: mutationError("The folder", cause).text });
@@ -157,9 +176,12 @@ function ConnectorRow({
     });
   const syncNow = () =>
     run("This source", async () => {
+      if (isHostedDesktop()) return syncFromDesktop(c);
       await api.syncConnector(c.id, crypto.randomUUID());
       return { tone: "info", text: `Sync of “${c.title}” is queued. It has not run yet.` };
     });
+  // A hosted folder lives on someone's Mac; only the desktop app can sync it.
+  const canSync = !hostedSources() || isHostedDesktop();
   const remove = () =>
     run("This source", async () => {
       await api.deleteConnector(c.id);
@@ -188,7 +210,11 @@ function ConnectorRow({
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button disabled={busy || paused} onClick={() => void syncNow()}>Sync now</Button>
+          {canSync ? (
+            <Button disabled={busy || paused} onClick={() => void syncNow()}>Sync now</Button>
+          ) : (
+            <span className="self-center text-xs text-muted">Syncs from the Metis desktop app</span>
+          )}
           <Button disabled={busy} onClick={() => void toggle()}>{paused ? "Resume" : "Pause"}</Button>
           {!confirming && <Button variant="danger" disabled={busy} onClick={() => setConfirming(true)}>Remove…</Button>}
         </div>
@@ -334,7 +360,7 @@ export function SourcesScreen() {
               </ul>
             )}
           </section>
-          {!hostedSources() && <AddFolder onAdded={() => void loadConnectors()} />}
+          {(!hostedSources() || isHostedDesktop()) && <AddFolder onAdded={() => void loadConnectors()} />}
         </div>
 
         <aside className="mt-6 flex flex-col gap-6 lg:mt-0">

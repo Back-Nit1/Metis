@@ -747,6 +747,25 @@ export interface FlowSettings {
   keep_history?: boolean;
 }
 
+/** One file the desktop app found under a connector's folders. */
+export interface FolderFile {
+  path: string;
+  size_bytes: number;
+  modified_ns: number;
+}
+
+/** A desktop listing of a local-folder connector. Files absent from it are */
+export interface FolderManifestRequest {
+  files?: FolderFile[];
+  full?: boolean;
+}
+
+export interface FolderManifestResponse {
+  upload?: string[];
+  tombstoned?: number;
+  rejected?: number;
+}
+
 /** Unauthenticated callers get only ``status`` and ``contract_version``; */
 export interface HealthResponse {
   status: "ok" | "degraded";

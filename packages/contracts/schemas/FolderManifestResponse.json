@@ -1,0 +1,27 @@
+{
+  "$id": "https://metis.local/schemas/v1/FolderManifestResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "rejected": {
+      "default": 0,
+      "title": "Rejected",
+      "type": "integer"
+    },
+    "tombstoned": {
+      "default": 0,
+      "title": "Tombstoned",
+      "type": "integer"
+    },
+    "upload": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Upload",
+      "type": "array"
+    }
+  },
+  "title": "FolderManifestResponse",
+  "type": "object",
+  "x-contract-version": 1
+}

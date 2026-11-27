@@ -21,8 +21,9 @@ import logging
 import mimetypes
 import os
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from metis_contracts import (
@@ -32,6 +33,7 @@ from metis_contracts import (
     EventType,
     MetisError,
     Mode,
+    ObjectRef,
     OutboxEvent,
     SourceArtifact,
     SourceOrigin,
@@ -39,6 +41,7 @@ from metis_contracts import (
     settings,
 )
 from metis_contracts.enums import FailureCategory, SourceKind, SourceLifecycle
+from metis_state.object_store import owner_prefix
 
 from .parsers import is_indexable
 
@@ -287,19 +290,23 @@ def sync_connector(
                 st = path.stat()
             except OSError:
                 continue
-            stamp = f"{st.st_mtime_ns}:{st.st_size}"
             src = existing.get(external_id)
-            unchanged = (
-                src is not None
-                and src.origin is not None
-                and src.origin.external_version.startswith(stamp + ":")
-            )
-            if unchanged and not full:
+            if _unchanged(src, st.st_mtime_ns, st.st_size) and not full:
                 continue
             if events >= MAX_EVENTS_PER_PASS:
                 more = True
                 continue
-            if _upsert_file(state, connector, src, path, st, stamp, now, max_bytes, full, correlation_id):
+            sha = "" if st.st_size > max_bytes else _sha256(path)
+            if _upsert_file(
+                state,
+                connector,
+                src,
+                FileFacts(external_id, st.st_size, st.st_mtime_ns, sha),
+                now,
+                max_bytes,
+                full,
+                correlation_id,
+            ):
                 events += 1
 
     if not more:
@@ -320,13 +327,33 @@ def sync_connector(
     return events
 
 
+@dataclass(frozen=True)
+class FileFacts:
+    """One file as seen by whoever read it: this machine, or the desktop app."""
+
+    external_id: str
+    size: int
+    mtime_ns: int
+    sha: str
+    """sha256 of the bytes; empty when the file is over the size limit."""
+    object_ref: ObjectRef | None = None
+    """Where uploaded bytes are stored; None when ingestion reads the path."""
+    source_id: str | None = None
+
+
+def _unchanged(src: SourceArtifact | None, mtime_ns: int, size: int) -> bool:
+    return (
+        src is not None
+        and src.origin is not None
+        and src.origin.external_version.startswith(f"{mtime_ns}:{size}:")
+    )
+
+
 def _upsert_file(
     state: Any,
     connector: Connector,
     src: SourceArtifact | None,
-    path: Path,
-    st: os.stat_result,
-    stamp: str,
+    facts: FileFacts,
     now: datetime,
     max_bytes: int,
     full: bool,
@@ -334,19 +361,20 @@ def _upsert_file(
 ) -> bool:
     """Create or update one file source. Returns True when an event was raised."""
     user_id = connector.user_id
-    too_big = st.st_size > max_bytes
-    sha = "" if too_big else _sha256(path)
-    version = f"{stamp}:{sha or 'skipped'}"
-    modified = datetime.fromtimestamp(st.st_mtime_ns / 1e9, tz=UTC)
+    too_big = facts.size > max_bytes
+    sha = "" if too_big else facts.sha
+    version = f"{facts.mtime_ns}:{facts.size}:{sha or 'skipped'}"
+    modified = datetime.fromtimestamp(facts.mtime_ns / 1e9, tz=UTC)
+    name = PurePosixPath(facts.external_id).name
     origin = SourceOrigin(
         connector_id=connector.id,
-        external_id=str(path),
+        external_id=facts.external_id,
         external_version=version[:200],
-        uri=str(path),
-        title=path.name[:500],
-        mime_type=mimetypes.guess_type(path.name)[0],
+        uri=facts.external_id,
+        title=name[:500],
+        mime_type=mimetypes.guess_type(name)[0],
         modified_at=modified,
-        size_bytes=st.st_size,
+        size_bytes=facts.size,
     )
     content_same = (
         src is not None and src.origin is not None and sha and src.origin.external_version.endswith(":" + sha)
@@ -354,14 +382,14 @@ def _upsert_file(
     skipped = {
         "lifecycle": SourceLifecycle.FAILED,
         "failure": FailureCategory.LIMIT_EXCEEDED,
-        "error_message": f"skipped: {st.st_size} bytes exceeds the {max_bytes}-byte corpus limit",
+        "error_message": f"skipped: {facts.size} bytes exceeds the {max_bytes}-byte corpus limit",
     }
     with state.transaction(user_id) as tx:
         if src is None:
             stored = tx.put(
                 "source",
                 SourceArtifact(
-                    id=new_id("src"),
+                    id=facts.source_id or new_id("src"),
                     user_id=user_id,
                     created_at=now,
                     updated_at=now,
@@ -369,6 +397,7 @@ def _upsert_file(
                     capture_timezone="UTC",
                     captured_at=modified,
                     origin=origin,
+                    object_ref=facts.object_ref,
                     **(skipped if too_big else {"lifecycle": SourceLifecycle.PROCESSING}),
                 ),
             )
@@ -379,6 +408,7 @@ def _upsert_file(
         else:
             update: dict[str, Any] = {
                 "origin": origin,
+                "object_ref": facts.object_ref or src.object_ref,
                 "lifecycle": SourceLifecycle.PROCESSING,
                 "failure": None,
                 "error_message": None,
@@ -407,6 +437,117 @@ def _upsert_file(
             )
         )
     return True
+
+
+# --- desktop upload connector (server mode, ADR 0006) ----------------------- #
+#
+# The server never reads a client path. The desktop app walks a folder the user
+# picked, sends a listing, and uploads only what the server asks for. The same
+# excludes apply here as on a local walk, so a client cannot push a secret file.
+
+
+def upload_key(user_id: str, source_id: str) -> str:
+    return f"{owner_prefix(user_id)}/files/{source_id}"
+
+
+def _in_scope(connector: Connector, raw: str) -> bool:
+    """Absolute POSIX path under one of the connector's roots, not excluded."""
+    path = PurePosixPath(raw)
+    if not path.is_absolute() or ".." in path.parts:
+        return False
+    for root in connector.config.paths:
+        base = PurePosixPath(root)
+        if path != base and path.is_relative_to(base):
+            rel = path.relative_to(base).as_posix()
+            cfg = connector.config
+            # Path.home() is the server's here, so "~/" excludes are the desktop's job.
+            return not _excluded(Path(path), rel, cfg.exclude_globs) and _included(
+                Path(path), rel, cfg.include_globs
+            )
+    return False
+
+
+def apply_manifest(
+    state: Any,
+    *,
+    connector: Connector,
+    files: list[tuple[str, int, int]],
+    clock: Any,
+    full: bool = False,
+    correlation_id: str | None = None,
+) -> tuple[list[str], int, int]:
+    """One sync pass from a desktop listing of ``(path, size, mtime_ns)``.
+
+    Returns ``(paths to upload, tombstoned, out of scope)``. Oversized files get
+    a visible skipped source without an upload; missing ones are tombstoned.
+    """
+    now = clock.now()
+    user_id = connector.user_id
+    existing = _connector_sources(state, user_id, connector.id)
+    max_bytes = settings().limits.corpus_max_file_bytes
+    seen: set[str] = set()
+    upload: list[str] = []
+    rejected = 0
+    for path, size, mtime_ns in files:
+        if path in seen:
+            continue
+        if not _in_scope(connector, path):
+            rejected += 1
+            continue
+        seen.add(path)
+        src = existing.get(path)
+        if _unchanged(src, mtime_ns, size) and not full:
+            continue
+        if size > max_bytes:
+            _upsert_file(
+                state,
+                connector,
+                src,
+                FileFacts(path, size, mtime_ns, ""),
+                now,
+                max_bytes,
+                full,
+                correlation_id,
+            )
+        else:
+            upload.append(path)
+    missing = [src for ext, src in existing.items() if ext not in seen]
+    for src in missing:
+        with state.transaction(user_id) as tx:
+            _tombstone_source(tx, src, now, correlation_id)
+        state.tombstone(user_id, "source", src.id)
+    _finish(state, connector, now, status=ConnectorStatus.ACTIVE, error=None, item_count=len(seen))
+    return upload, len(missing), rejected
+
+
+def store_upload(
+    state: Any,
+    source_store: Any,
+    *,
+    connector: Connector,
+    path: str,
+    mtime_ns: int,
+    data: bytes,
+    clock: Any,
+    correlation_id: str | None = None,
+) -> bool:
+    """Store one uploaded file and request its ingestion. True if queued."""
+    if not _in_scope(connector, path):
+        raise MetisError(ErrorCode.FORBIDDEN, "the file is outside this connector's folders or excluded")
+    max_bytes = settings().limits.corpus_max_file_bytes
+    if len(data) > max_bytes:
+        raise MetisError(ErrorCode.UPLOAD_TOO_LARGE, f"the file is {len(data)} bytes, over {max_bytes}")
+    user_id = connector.user_id
+    src = _connector_sources(state, user_id, connector.id).get(path)
+    source_id = src.id if src is not None else new_id("src")
+    name = PurePosixPath(path).name
+    ref = source_store.put_bytes(
+        ObjectRef(bucket=source_store.bucket, key=upload_key(user_id, source_id)),
+        data,
+        content_type=mimetypes.guess_type(name)[0] or "application/octet-stream",
+    )
+    facts = FileFacts(path, len(data), mtime_ns, hashlib.sha256(data).hexdigest(), ref, source_id)
+    return _upsert_file(state, connector, src, facts, clock.now(), max_bytes, False, correlation_id)
 
 
 def _finish(
@@ -439,9 +580,12 @@ __all__ = [
     "DEFAULT_EXCLUDES",
     "MAX_EVENTS_PER_PASS",
     "SECRET_EXCLUDES",
+    "apply_manifest",
     "enqueue_due_syncs",
     "enqueue_sync",
     "remove_connector",
+    "store_upload",
     "sync_connector",
+    "upload_key",
     "walk",
 ]

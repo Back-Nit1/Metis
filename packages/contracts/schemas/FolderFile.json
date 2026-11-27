@@ -1,0 +1,32 @@
+{
+  "$id": "https://metis.local/schemas/v1/FolderFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One file the desktop app found under a connector's folders.",
+  "properties": {
+    "modified_ns": {
+      "minimum": 0,
+      "title": "Modified Ns",
+      "type": "integer"
+    },
+    "path": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Path",
+      "type": "string"
+    },
+    "size_bytes": {
+      "minimum": 0,
+      "title": "Size Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "path",
+    "size_bytes",
+    "modified_ns"
+  ],
+  "title": "FolderFile",
+  "type": "object",
+  "x-contract-version": 1
+}

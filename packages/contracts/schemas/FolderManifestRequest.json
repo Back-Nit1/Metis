@@ -1,0 +1,55 @@
+{
+  "$defs": {
+    "FolderFile": {
+      "additionalProperties": false,
+      "description": "One file the desktop app found under a connector's folders.",
+      "properties": {
+        "modified_ns": {
+          "minimum": 0,
+          "title": "Modified Ns",
+          "type": "integer"
+        },
+        "path": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "size_bytes",
+        "modified_ns"
+      ],
+      "title": "FolderFile",
+      "type": "object"
+    }
+  },
+  "$id": "https://metis.local/schemas/v1/FolderManifestRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A desktop listing of a local-folder connector. Files absent from it are\nremoved from the index, so it must list every folder of the connector.",
+  "properties": {
+    "files": {
+      "items": {
+        "$ref": "#/$defs/FolderFile"
+      },
+      "maxItems": 20000,
+      "title": "Files",
+      "type": "array"
+    },
+    "full": {
+      "default": false,
+      "title": "Full",
+      "type": "boolean"
+    }
+  },
+  "title": "FolderManifestRequest",
+  "type": "object",
+  "x-contract-version": 1
+}

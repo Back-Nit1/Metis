@@ -6,10 +6,10 @@ import asyncio
 import fnmatch
 import time
 from datetime import timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from metis_contracts import (
     Connector,
@@ -29,13 +29,21 @@ from metis_contracts.api import (
     CreateConnectorRequest,
     DeadLetter,
     DeadLetterPage,
+    FolderManifestRequest,
+    FolderManifestResponse,
     JobAccepted,
     QueueStats,
     UpdateConnectorRequest,
 )
 from metis_contracts.entities import ConnectorConfig
 from metis_pipeline.dispatcher import lane_of
-from metis_retrieval.connectors import DEFAULT_EXCLUDES, enqueue_sync, remove_connector
+from metis_retrieval.connectors import (
+    DEFAULT_EXCLUDES,
+    apply_manifest,
+    enqueue_sync,
+    remove_connector,
+    store_upload,
+)
 
 from ..deps import Context
 
@@ -60,9 +68,14 @@ def _excluded_root(path: Path) -> str | None:
 
 def _validated_config(config: ConnectorConfig) -> ConnectorConfig:
     """Roots must be absolute, existing directories outside excluded/secret dirs.
-    Stored resolved, so a symlinked root cannot later point somewhere else."""
+    Stored resolved, so a symlinked root cannot later point somewhere else.
+
+    On the shared server the roots are on the user's device: they are checked
+    as names only and never touched (the desktop app uploads the files)."""
     if not config.paths:
         raise MetisError(ErrorCode.VALIDATION_FAILED, "a local folder connector needs at least one path")
+    if settings().mode is Mode.SERVER:
+        return _validated_remote_config(config)
     roots: list[str] = []
     for raw in config.paths:
         path = Path(raw)
@@ -77,11 +90,29 @@ def _validated_config(config: ConnectorConfig) -> ConnectorConfig:
     return config.model_copy(update={"paths": list(dict.fromkeys(roots))})
 
 
-def _require_local_folder_access() -> None:
+def _validated_remote_config(config: ConnectorConfig) -> ConnectorConfig:
+    roots: list[str] = []
+    for raw in config.paths:
+        path = PurePosixPath(raw)
+        if not path.is_absolute() or ".." in path.parts or path == PurePosixPath("/"):
+            raise MetisError(
+                ErrorCode.VALIDATION_FAILED, f"path must be an absolute folder on your Mac: {raw}"
+            )
+        for pattern in DEFAULT_EXCLUDES:
+            name = pattern[2:] if pattern.startswith("~/") else pattern
+            if any(fnmatch.fnmatch(part.lower(), name.lower()) for part in path.parts):
+                raise MetisError(
+                    ErrorCode.VALIDATION_FAILED, f"{raw} is inside an excluded folder ({pattern})"
+                )
+        roots.append(str(path))
+    return config.model_copy(update={"paths": list(dict.fromkeys(roots))})
+
+
+def _require_server_reads_paths() -> None:
     if settings().mode is Mode.SERVER:
         raise MetisError(
-            ErrorCode.FORBIDDEN,
-            "local folder connectors are unavailable on the shared server",
+            ErrorCode.INVALID_STATE_TRANSITION,
+            "folders on the shared server are synced by the Metis desktop app",
         )
 
 
@@ -94,8 +125,10 @@ def list_connectors(
 
 @router.post("/connectors", response_model=Connector, status_code=status.HTTP_201_CREATED)
 def create_connector(body: CreateConnectorRequest, ctx: Context) -> Connector:
-    """Create a local-folder connector and its first full sync in one transaction."""
-    _require_local_folder_access()
+    """Create a local-folder connector and its first full sync in one transaction.
+
+    On the shared server there is no server-side sync: the desktop app lists
+    and uploads the folder (``/manifest`` and ``/files``)."""
     ctx.require_idempotency_key()
     if replayed := ctx.replay():
         return Connector.model_validate(replayed)
@@ -125,7 +158,8 @@ def create_connector(body: CreateConnectorRequest, ctx: Context) -> Connector:
     )
     with ctx.state.transaction(ctx.user_id) as tx:
         stored = tx.put("connector", connector)
-        tx.append_outbox(event)
+        if settings().mode is not Mode.SERVER:
+            tx.append_outbox(event)
     ctx.remember(stored.model_dump(mode="json"))
     return stored
 
@@ -138,8 +172,6 @@ def get_connector(connector_id: str, ctx: Context) -> Connector:
 @router.patch("/connectors/{connector_id}", response_model=Connector)
 def patch_connector(connector_id: str, body: UpdateConnectorRequest, ctx: Context) -> Connector:
     connector = ctx.require("connector", connector_id, Connector)
-    if connector.kind is ConnectorKind.LOCAL_FOLDER:
-        _require_local_folder_access()
     if replayed := ctx.replay():
         return Connector.model_validate(replayed)
     if connector.revision != body.expected_revision:
@@ -181,7 +213,7 @@ def delete_connector(connector_id: str, ctx: Context) -> Response:
 def sync_connector_now(connector_id: str, ctx: Context) -> JobAccepted:
     connector = ctx.require("connector", connector_id, Connector)
     if connector.kind is ConnectorKind.LOCAL_FOLDER:
-        _require_local_folder_access()
+        _require_server_reads_paths()
     ctx.require_idempotency_key()
     if replayed := ctx.replay():
         return JobAccepted.model_validate(replayed)
@@ -200,6 +232,61 @@ def sync_connector_now(connector_id: str, ctx: Context) -> JobAccepted:
     result = JobAccepted(job_id=event_id, state="queued")
     ctx.remember(result.model_dump(mode="json"))
     return result
+
+
+def _uploadable(connector_id: str, ctx: Context) -> Connector:
+    connector = ctx.require("connector", connector_id, Connector)
+    if connector.kind is not ConnectorKind.LOCAL_FOLDER:
+        raise MetisError(ErrorCode.VALIDATION_FAILED, "only local-folder connectors accept files")
+    if connector.status in (ConnectorStatus.PAUSED, ConnectorStatus.NEEDS_AUTH):
+        raise MetisError(
+            ErrorCode.INVALID_STATE_TRANSITION, f"connector {connector_id} is {connector.status.value}"
+        )
+    return connector
+
+
+@router.post("/connectors/{connector_id}/manifest", response_model=FolderManifestResponse)
+def folder_manifest(connector_id: str, body: FolderManifestRequest, ctx: Context) -> FolderManifestResponse:
+    """One desktop sync pass: say which files to upload, tombstone the missing."""
+    connector = _uploadable(connector_id, ctx)
+    upload, tombstoned, rejected = apply_manifest(
+        ctx.state,
+        connector=connector,
+        files=[(f.path, f.size_bytes, f.modified_ns) for f in body.files],
+        clock=ctx.adapters.clock,
+        full=body.full,
+        correlation_id=ctx.correlation_id,
+    )
+    return FolderManifestResponse(upload=upload, tombstoned=tombstoned, rejected=rejected)
+
+
+@router.put("/connectors/{connector_id}/files", status_code=status.HTTP_204_NO_CONTENT)
+async def folder_file(
+    connector_id: str,
+    request: Request,
+    ctx: Context,
+    path: str = Query(min_length=1, max_length=2000),
+    modified_ns: int = Query(ge=0),
+) -> Response:
+    """Store one file's bytes (as listed in the manifest) and queue its ingestion."""
+    connector = _uploadable(connector_id, ctx)
+    limit = settings().limits.corpus_max_file_bytes
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise MetisError(ErrorCode.UPLOAD_TOO_LARGE, f"the file is {declared} bytes, over {limit}")
+    body = await request.body()
+    await run_in_threadpool(
+        store_upload,
+        ctx.state,
+        ctx.adapters.source_store,
+        connector=connector,
+        path=path,
+        mtime_ns=modified_ns,
+        data=body,
+        clock=ctx.adapters.clock,
+        correlation_id=ctx.correlation_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/queue", response_model=QueueStats)

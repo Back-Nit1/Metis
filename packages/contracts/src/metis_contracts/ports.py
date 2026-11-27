@@ -280,6 +280,7 @@ class SourceStore(Protocol):
     """Private object storage for recordings, transcripts and exports."""
 
     mode: AdapterMode
+    bucket: str
 
     def upload_target(
         self, user_id: str, *, capture_id: str, content_type: str, max_bytes: int, ttl_seconds: int

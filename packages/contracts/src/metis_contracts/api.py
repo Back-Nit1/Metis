@@ -506,6 +506,31 @@ class CreateConnectorRequest(StrictModel):
     config: ConnectorConfig
 
 
+class FolderFile(StrictModel):
+    """One file the desktop app found under a connector's folders."""
+
+    path: Annotated[str, Field(min_length=1, max_length=2000)]
+    """Absolute path on the user's device; an identifier only, never read by the server."""
+    size_bytes: Annotated[int, Field(ge=0)]
+    modified_ns: Annotated[int, Field(ge=0)]
+
+
+class FolderManifestRequest(StrictModel):
+    """A desktop listing of a local-folder connector. Files absent from it are
+    removed from the index, so it must list every folder of the connector."""
+
+    files: list[FolderFile] = Field(default_factory=list, max_length=20000)
+    full: bool = False
+
+
+class FolderManifestResponse(StrictModel):
+    upload: list[str] = Field(default_factory=list)
+    """Paths whose bytes the server needs: new, or changed since the last listing."""
+    tombstoned: int = 0
+    rejected: int = 0
+    """Listed paths outside the connector's folders or under an excluded pattern."""
+
+
 class UpdateConnectorRequest(StrictModel):
     expected_revision: Revision
     status: Literal["active", "paused"] | None = None

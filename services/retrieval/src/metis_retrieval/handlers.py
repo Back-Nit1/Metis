@@ -7,16 +7,16 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from metis_contracts import ErrorCode, EventEnvelope, EventType, MetisError, settings
+from metis_contracts import ErrorCode, EventEnvelope, EventType, MetisError, ObjectRef, settings
 from metis_contracts.enums import FailureCategory, SourceLifecycle
 from metis_contracts.events import ConnectorSyncPayload, MemoryIndexPayload, PurgePayload, SourceIngestPayload
 from metis_pipeline.dispatcher import DispatchContext, HandlerRegistry, classify
 
-from .connectors import _sha256, sync_connector
+from .connectors import _sha256, sync_connector, upload_key
 from .corpus_store import ChunkRow, chunk_id_for
 from .embedder import content_hash
 from .ingestion import chunk_text, needs_embedding
-from .parsers import parse_file
+from .parsers import parse_bytes, parse_file
 
 log = logging.getLogger("metis.retrieval.handlers")
 
@@ -112,13 +112,13 @@ def handle_source_ingest(envelope: EventEnvelope, context: DispatchContext) -> N
     Chunks are keyword-searchable as soon as they are written; if the embedding
     model is down the event retries and only the missing vectors are computed.
     Malformed input marks the source failed and re-raises so it dead-letters.
+
+    Uploaded files (``object_ref`` set) are read from the owner's object prefix.
+    Otherwise ``external_id`` is a path on this machine, which the shared
+    server never reads.
     """
     from metis_contracts import Mode
 
-    # This handler reads source.origin.external_id as an OS path. Until remote
-    # connector adapters exist, queued desktop jobs must not read the VM disk.
-    if settings().mode is Mode.SERVER:
-        raise MetisError(ErrorCode.FORBIDDEN, "local file ingestion is unavailable on the server")
     corpus = getattr(context.memory_store, "corpus", None)
     if corpus is None:
         raise MetisError(ErrorCode.PROVIDER_UNAVAILABLE, "no corpus index is configured")
@@ -130,11 +130,24 @@ def handle_source_ingest(envelope: EventEnvelope, context: DispatchContext) -> N
     if payload.source_version < source.current_version:
         raise MetisError(ErrorCode.REVISION_CONFLICT, "a newer version of this file supersedes this request")
 
-    path = Path(source.origin.external_id)
-    try:
-        size = path.stat().st_size
-    except FileNotFoundError as exc:
-        raise MetisError(ErrorCode.TOMBSTONED, "the file vanished; the next sync tombstones it") from exc
+    ref = source.object_ref
+    if ref is not None:
+        if not context.source_store.owns_key(user_id, ref.key):
+            raise MetisError(ErrorCode.FORBIDDEN, "the stored file is outside the owner's prefix")
+        blob = context.source_store.get_bytes(ref)
+        data: bytes | None = blob
+        size = len(blob)
+        digest = hashlib.sha256(blob).hexdigest()
+    elif settings().mode is Mode.SERVER:
+        raise MetisError(ErrorCode.FORBIDDEN, "the server reads only uploaded files, never a client path")
+    else:
+        data = None
+        path = Path(source.origin.external_id)
+        try:
+            size = path.stat().st_size
+        except FileNotFoundError as exc:
+            raise MetisError(ErrorCode.TOMBSTONED, "the file vanished; the next sync tombstones it") from exc
+        digest = _sha256(path)
     limit = settings().limits.corpus_max_file_bytes
     if size > limit:
         _mark(
@@ -150,7 +163,7 @@ def handle_source_ingest(envelope: EventEnvelope, context: DispatchContext) -> N
     # parse and embed. Only a finished ingest writes a receipt; failures rerun.
     model_id = context.embedder.model_id if context.embedder is not None else ""
     work_key = hashlib.sha256(
-        f"{source.id}:{source.current_version}:{_sha256(path)}:{model_id}".encode()
+        f"{source.id}:{source.current_version}:{digest}:{model_id}".encode()
     ).hexdigest()
     done = corpus.ingested_chunk_count(user_id, source.id, work_key)
     if done is not None:
@@ -167,7 +180,7 @@ def handle_source_ingest(envelope: EventEnvelope, context: DispatchContext) -> N
         return
 
     try:
-        text = parse_file(path)
+        text = parse_bytes(data, name=source.origin.title) if data is not None else parse_file(path)
     except MetisError as exc:
         _mark(
             context,
@@ -233,6 +246,9 @@ def handle_corpus_purge(envelope: EventEnvelope, context: DispatchContext) -> No
     if corpus is not None:
         removed = corpus.delete_source(envelope.user_id, payload.target_id)
         log.info("purged %d corpus chunks of %s", removed, payload.target_id)
+    # Uploaded bytes live at a key derived from the source id; absent is fine.
+    store = context.source_store
+    store.delete(ObjectRef(bucket=store.bucket, key=upload_key(envelope.user_id, payload.target_id)))
     if context.state_store.get(envelope.user_id, "source", payload.target_id) is None:
         context.state_store.purge(envelope.user_id, "source", payload.target_id)
 

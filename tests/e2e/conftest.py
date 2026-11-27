@@ -2,7 +2,7 @@
 
 Everything here is a FIXTURE adapter (fixture inference, fixture transcriber,
 local schedule store, SQLite). Passing this suite is local evidence only; it
-says nothing about real ASR, Bedrock, DynamoDB, EventBridge or web push.
+says nothing about real ASR, models or the hosted server.
 """
 
 from __future__ import annotations
@@ -112,20 +112,20 @@ def adapters(tmp_path, clock, monkeypatch):
 
 @pytest.fixture()
 def h(adapters, clock, monkeypatch) -> Harness:
-    from metis_api import browser_session
+    from metis_api import deps
     from metis_api.auth import Principal
     from metis_api.main import create_app
 
-    real = browser_session.principal_from_header
+    real = deps.principal_from_header
 
     def principal(authorization):
         # Tests choose a second authenticated subject with `Bearer <subject>`;
         # ownership still comes from the (stubbed) verified token, never a body.
         if authorization and authorization.startswith("Bearer "):
-            return Principal(user_id=authorization.split(" ", 1)[1], source="cognito")
+            return Principal(user_id=authorization.split(" ", 1)[1], source="firebase")
         return real(authorization)
 
-    monkeypatch.setattr(browser_session, "principal_from_header", principal)
+    monkeypatch.setattr(deps, "principal_from_header", principal)
     app = create_app()
     with TestClient(app) as client:
         app.state.adapters = adapters

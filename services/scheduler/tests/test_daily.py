@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 from metis_contracts import ErrorCode, EventEnvelope, EventType, FixedClock, MetisError
 from metis_pipeline.dispatcher import DispatchContext
-from metis_scheduler import EventBridgeScheduleStore, LocalScheduleStore, daily_schedule_name
+from metis_scheduler import LocalScheduleStore
 from metis_scheduler.handlers import handle_daily_schedule_sync
 from metis_state.sqlite_store import SqliteStateStore
 
@@ -160,67 +157,6 @@ def test_dst_fall_back_ambiguous_time_one_local_date():
     assert s.list_due_daily(now=utc(2026, 11, 1, 5, 29)) == []
     assert s.list_due_daily(now=utc(2026, 11, 1, 5, 30)) == [("u", "2026-11-01")]
     assert s.list_due_daily(now=utc(2026, 11, 1, 6, 30)) == [("u", "2026-11-01")]  # same date, deduped by API
-
-
-def _eb(monkeypatch):
-    cfg = SimpleNamespace(
-        scheduler_group="g",
-        scheduler_role_arn="r",
-        reminder_target_arn="t",
-        daily_plan_target_arn="d",
-        region="us-east-1",
-    )
-    monkeypatch.setattr("metis_scheduler.schedule_store.settings", lambda: SimpleNamespace(aws=cfg))
-    client = MagicMock()
-    client.exceptions.ConflictException = type("Conflict", (Exception,), {})
-    client.exceptions.ResourceNotFoundException = type("NF", (Exception,), {})
-    monkeypatch.setitem(__import__("sys").modules, "boto3", SimpleNamespace(client=lambda *a, **k: client))
-    return EventBridgeScheduleStore(), client
-
-
-def test_eventbridge_cron_in_user_zone(monkeypatch):
-    s, client = _eb(monkeypatch)
-    ref = s.upsert_daily(user_id="u|1", local_time="08:05", timezone=NY, payload={"user_id": "u|1"})
-    req = client.create_schedule.call_args.kwargs
-    assert req["ScheduleExpression"] == "cron(5 8 * * ? *)"
-    assert req["ScheduleExpressionTimezone"] == NY
-    assert req["Name"] == daily_schedule_name("u|1") and "|" not in req["Name"]
-    assert json.loads(req["Target"]["Input"])["scheduled_time"] == "<aws.scheduler.scheduled-time>"
-    assert ref.endswith(req["Name"])
-    assert req["Target"]["Arn"] == "d"  # the daily-plan target, not the reminder one
-    assert json.loads(req["Target"]["Input"]) == {
-        "user_id": "u|1",
-        "scheduled_time": "<aws.scheduler.scheduled-time>",
-    }
-
-
-def test_eventbridge_requires_daily_target_arn(monkeypatch):
-    s, client = _eb(monkeypatch)
-    s._cfg.daily_plan_target_arn = None
-    with pytest.raises(MetisError, match="METIS_DAILY_PLAN_TARGET_ARN") as e:
-        s.upsert_daily(user_id="u", local_time="08:00", timezone=NY, payload={})
-    assert e.value.code is ErrorCode.PROVIDER_UNAVAILABLE
-    client.create_schedule.assert_not_called()
-
-
-def test_eventbridge_conflict_updates_not_duplicates(monkeypatch):
-    s, client = _eb(monkeypatch)
-    client.create_schedule.side_effect = client.exceptions.ConflictException()
-    s.upsert_daily(user_id="u", local_time="08:00", timezone=NY, payload={})
-    client.update_schedule.assert_called_once()
-
-
-def test_eventbridge_failures_and_missing_delete(monkeypatch):
-    s, client = _eb(monkeypatch)
-    client.create_schedule.side_effect = RuntimeError("boom")
-    with pytest.raises(MetisError) as e:
-        s.upsert_daily(user_id="u", local_time="08:00", timezone=NY, payload={})
-    assert e.value.code is ErrorCode.PROVIDER_UNAVAILABLE
-    client.delete_schedule.side_effect = client.exceptions.ResourceNotFoundException()
-    s.delete_daily(user_id="u", scheduler_ref=None)  # already gone: fine
-    client.delete_schedule.side_effect = RuntimeError("boom")
-    with pytest.raises(MetisError):
-        s.delete_daily(user_id="u", scheduler_ref=None)
 
 
 def _state(c):

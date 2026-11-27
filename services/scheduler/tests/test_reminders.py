@@ -25,7 +25,6 @@ from metis_contracts.entities import TimeWindow
 from metis_pipeline.dispatcher import DispatchContext, OutboxDispatcher
 from metis_scheduler import (
     FixtureTransport,
-    InAppTransport,
     LocalScheduleStore,
     cancel_reminder,
     evaluate_due,
@@ -459,38 +458,6 @@ def test_a_failed_dispatch_write_is_retried_not_lost(store, clock, context, monk
 
     assert len(store.list_notifications(USER).items) == 1
     assert store.get(USER, "reminder", reminder.id).state is ReminderState.DELIVERED
-
-
-def test_an_unsupported_channel_still_leaves_the_in_app_record(store, clock):
-    task = make_task(store, clock)
-    reminder = add_reminder(store, clock, task, channel="web_push")
-
-    class _Unsupported:
-        channel = "web_push"
-        mode = "cloud"
-
-        def supported(self, user_id):
-            return False
-
-        def send(self, notification):
-            raise AssertionError("send must not be called when unsupported")
-
-    ctx = DispatchContext(
-        state_store=store,
-        source_store=None,
-        clock=clock,
-        schedule_store=LocalScheduleStore(state_store=store, clock=clock),
-        notification_transports={"web_push": _Unsupported(), "in_app": InAppTransport(store, clock)},
-        worker_id="w1",
-    )
-    drain(ctx)
-    clock.set(DUE)
-    raise_due_event(store, user_id=USER, reminder_id=reminder.id, clock=clock)
-    drain(ctx)
-    notifications = store.list_notifications(USER).items
-    assert len(notifications) == 1
-    assert notifications[0].delivery_status is DeliveryStatus.UNSUPPORTED
-    assert notifications[0].delivery_detail
 
 
 def test_an_ordinary_reminder_makes_no_model_calls(store, clock, context):

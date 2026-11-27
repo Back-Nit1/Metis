@@ -1,4 +1,4 @@
-"""Reminders, notifications and push subscriptions."""
+"""Reminders and the in-app notification feed."""
 
 from __future__ import annotations
 
@@ -9,16 +9,13 @@ from metis_contracts import (
     ErrorCode,
     MetisError,
     Notification,
-    PushSubscription,
     Reminder,
     ReminderState,
-    new_id,
     resolve_timezone,
 )
 from metis_contracts.api import (
     CreateReminderRequest,
     NotificationPage,
-    RegisterPushRequest,
     ReminderPage,
     RescheduleReminderRequest,
     SnoozeReminderRequest,
@@ -229,41 +226,3 @@ def mark_read(notification_id: str, ctx: Context) -> Notification:
             notification.model_copy(update={"read_at": ctx.adapters.clock.now()}),
             expected_revision=notification.revision,
         )
-
-
-@router.post("/push-subscriptions", response_model=PushSubscription, status_code=status.HTTP_201_CREATED)
-def register_push(body: RegisterPushRequest, ctx: Context) -> PushSubscription:
-    """Register this user's browser push subscription.
-
-    Ownership comes from the token, never the body. Web push needs browser and
-    platform support; delivery is not a universal guarantee.
-    """
-    from metis_scheduler.transports import is_push_endpoint_allowed
-
-    if not is_push_endpoint_allowed(body.endpoint):
-        raise MetisError(
-            ErrorCode.VALIDATION_FAILED, "endpoint must be an https URL of a browser push service"
-        )
-    if len(body.p256dh) > 256 or len(body.auth) > 64:
-        raise MetisError(ErrorCode.VALIDATION_FAILED, "push key material is too long")
-    now = ctx.adapters.clock.now()
-    subscription = PushSubscription(
-        id=new_id("push"),
-        user_id=ctx.user_id,
-        created_at=now,
-        updated_at=now,
-        endpoint=body.endpoint,
-        p256dh=body.p256dh,
-        auth=body.auth,
-        user_agent=body.user_agent,
-    )
-    with ctx.state.transaction(ctx.user_id) as tx:
-        return tx.put("push_subscription", subscription)
-
-
-@router.delete("/push-subscriptions/{subscription_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_push(subscription_id: str, ctx: Context) -> None:
-    subscription = ctx.state.get(ctx.user_id, "push_subscription", subscription_id)
-    if subscription is None:
-        raise MetisError(ErrorCode.NOT_FOUND, "subscription not found")
-    ctx.state.tombstone(ctx.user_id, "push_subscription", subscription_id)

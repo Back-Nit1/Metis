@@ -2,8 +2,8 @@
 
 * ``HostGuardMiddleware`` — a loopback server with no real credential (fixture
   identity, the local dev API) must not answer a browser that was DNS-rebound
-  to 127.0.0.1, so unknown ``Host`` values are refused. Skipped in cloud mode,
-  where API Gateway owns the hostname and the JWT authorizer owns identity.
+  to 127.0.0.1, so unknown ``Host`` values are refused. A hosted server adds
+  its own name through ``METIS_ALLOWED_HOSTS``.
 * ``BodyLimitMiddleware`` — bounds bytes *as they arrive*, so an oversized body
   is refused before it is buffered, not after.
 * ``clean_correlation_id`` — a client-supplied id is echoed into logs, queue
@@ -44,7 +44,7 @@ class HostGuardMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and not settings().is_cloud:
+        if scope["type"] == "http":
             raw = dict(scope["headers"]).get(b"host", b"").decode("latin-1")
             try:
                 host = (urlsplit("//" + raw).hostname or "").lower()

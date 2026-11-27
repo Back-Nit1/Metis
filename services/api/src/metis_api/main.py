@@ -1,8 +1,6 @@
 """FastAPI application factory.
 
-The same app object serves uvicorn locally and Lambda in the cloud (through the
-pinned ASGI adapter in ``lambda_entry.py``), so there is no second, partially
-implemented HTTP path to keep in sync.
+One app object, served by uvicorn in both local and server mode.
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ from metis_contracts import CONTRACT_VERSION, ErrorBody, ErrorCode, MetisError, 
 from .deps import build_adapters
 from .guards import BodyLimitMiddleware, HostGuardMiddleware, clean_correlation_id
 from .rate_limit import ConnectionRateLimitMiddleware
-from .routes import captures, connectors, flow, notifications, plans, projects, reminders, session, tasks
+from .routes import captures, connectors, flow, notifications, plans, projects, reminders, tasks
 
 log = logging.getLogger("metis.api")
 
@@ -139,7 +137,7 @@ def create_app() -> FastAPI:
         log.exception("unhandled error correlation=%s", correlation_id)
         return _error_response(MetisError(ErrorCode.INTERNAL, "an unexpected error occurred"), correlation_id)
 
-    for module in (captures, tasks, reminders, plans, projects, notifications, connectors, flow, session):
+    for module in (captures, tasks, reminders, plans, projects, notifications, connectors, flow):
         app.include_router(module.router)
 
     @app.get("/", include_in_schema=False)

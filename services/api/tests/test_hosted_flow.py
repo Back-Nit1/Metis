@@ -33,7 +33,7 @@ def speech(monkeypatch):
 
 def test_hosted_dictation_never_exposes_shared_secret_and_isolates_users(client, speech, monkeypatch):
     monkeypatch.setattr(
-        "metis_api.browser_session.principal_from_header",
+        "metis_api.deps.principal_from_header",
         lambda value: Principal(value.removeprefix("Bearer "), "firebase"),
     )
     alice = {"Authorization": "Bearer alice"}

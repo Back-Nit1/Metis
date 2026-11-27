@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from metis_api import browser_session
+from metis_api import deps
 from metis_api.auth import Principal
 from metis_contracts import ErrorCode, MetisError
 
@@ -14,14 +14,14 @@ T0 = "2026-10-05T14:00:00+00:00"
 @pytest.fixture()
 def other(client, monkeypatch):
     """Requests as a second authenticated subject: pass headers=other."""
-    real = browser_session.principal_from_header
+    real = deps.principal_from_header
 
     def principal(authorization):
         if authorization and authorization.startswith("Bearer "):
-            return Principal(user_id=authorization.split(" ", 1)[1], source="cognito")
+            return Principal(user_id=authorization.split(" ", 1)[1], source="firebase")
         return real(authorization)
 
-    monkeypatch.setattr(browser_session, "principal_from_header", principal)
+    monkeypatch.setattr(deps, "principal_from_header", principal)
     return {"Authorization": "Bearer someone_else"}
 
 

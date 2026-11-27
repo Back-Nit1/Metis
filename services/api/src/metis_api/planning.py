@@ -143,7 +143,7 @@ def handle_daily_due(
 ) -> dict[str, Any]:
     """Enqueue today's plan for ``user_id`` if this invocation is still valid.
 
-    ``scheduled_time`` (cloud: ISO instant from the provider) or ``local_date``
+    ``scheduled_time`` (an ISO instant) or ``local_date``
     (local timer) is only a hint. Returns ``{"enqueued": 0|1, "reason", ...}``.
     """
 

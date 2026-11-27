@@ -49,11 +49,11 @@ def test_missing_wrong_or_malformed_secret_rejected(desktop, headers):
     assert SECRET not in response.text
 
 
-def test_random_bearer_never_reaches_cognito(desktop, monkeypatch):
+def test_random_bearer_never_reaches_the_identity_provider(desktop, monkeypatch):
     def boom(token):
-        raise AssertionError("cognito must not be consulted")
+        raise AssertionError("the identity provider must not be consulted")
 
-    monkeypatch.setattr("metis_api.auth.verify_cognito_token", boom)
+    monkeypatch.setattr("metis_api.auth.verify_firebase_token", boom)
     assert desktop.get("/v1/tasks", headers=bearer("a.b.c")).status_code == 401
 
 

@@ -1,8 +1,8 @@
 """Application services behind the HTTP layer.
 
 These functions hold the behaviour; the route modules only parse, authorise and
-serialise. The same functions run under Lambda, under uvicorn and in tests,
-which is what keeps the local and cloud paths honest about each other.
+serialise. The same functions run in local mode, server mode and tests, which
+is what keeps those paths honest about each other.
 """
 
 from __future__ import annotations

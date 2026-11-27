@@ -30,8 +30,7 @@ from metis_contracts.ports import (
     Transaction,
 )
 
-from .auth import Principal
-from .browser_session import principal_for_request
+from .auth import Principal, principal_from_header
 from .guards import clean_correlation_id
 from .rate_limit import SlidingWindowRateLimiter as RateLimiter
 
@@ -273,7 +272,7 @@ async def get_context(
     x_correlation_id: Annotated[str | None, Header(alias="X-Correlation-Id")] = None,
 ) -> RequestContext:
     fingerprint: str | None = None
-    principal = await run_in_threadpool(principal_for_request, request, authorization)
+    principal = await run_in_threadpool(principal_from_header, authorization)
     if principal.is_fixture and not is_loopback_client(request):
         # The demo identity needs no credential, so it is only for this machine.
         # The Host guard stops DNS rebinding, but a LAN caller can send any Host.

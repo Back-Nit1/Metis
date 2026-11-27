@@ -38,6 +38,13 @@ export async function refreshFirebase(config: FirebaseConfig, previous: Session)
   return session(data.id_token, data.refresh_token, data.expires_in);
 }
 
+export async function resetFirebasePassword(config: FirebaseConfig, email: string): Promise<void> {
+  await exchange(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${encodeURIComponent(config.apiKey)}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestType: "PASSWORD_RESET", email }),
+  });
+}
+
 const key = (config: FirebaseConfig) => `metis.firebase.${config.projectId}`;
 export function loadFirebase(config: FirebaseConfig, storage: Storage = sessionStorage): Session | null {
   try {

@@ -3,7 +3,7 @@ import { Button } from "../components/Button";
 import { api, setAuthToken, setCookieSession, setUnauthenticatedHandler } from "../lib/api";
 import { AuthError, type FirebaseConfig, type Session } from "../lib/auth";
 import { setDesktopSession } from "../lib/desktop";
-import { loadFirebase, refreshFirebase, saveFirebase, signInFirebase } from "../lib/firebaseAuth";
+import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase } from "../lib/firebaseAuth";
 import { Outbox } from "../lib/outbox";
 import { AuthContext } from "./AuthGate";
 
@@ -12,6 +12,7 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [resetSent, setResetSent] = useState(false);
   const generation = useRef(0);
   // Stable primitive dependencies keep config object creation from restarting auth.
   const { apiKey, projectId } = config;
@@ -78,7 +79,7 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
         event.preventDefault();
         const fields = new FormData(event.currentTarget);
         const epoch = ++generation.current;
-        setBusy(true); setMessage(null);
+        setBusy(true); setMessage(null); setResetSent(false);
         try {
           await accept(await signInFirebase({ apiKey, projectId }, String(fields.get("email")), String(fields.get("password"))), epoch);
         } catch (error) {
@@ -91,7 +92,19 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
         <label className="mt-3 block text-sm" htmlFor="firebase-password">Password</label>
         <input className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2" id="firebase-password" name="password" type="password" autoComplete="current-password" required />
         <Button className="mt-4 w-full" variant="primary" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
+        <button className="mt-3 w-full text-sm underline" type="button" disabled={busy} onClick={async (event) => {
+          const email = event.currentTarget.form?.elements.namedItem("email");
+          if (!(email instanceof HTMLInputElement) || !email.reportValidity()) return;
+          setBusy(true); setMessage(null); setResetSent(false);
+          try {
+            await resetFirebasePassword({ apiKey, projectId }, email.value.trim());
+            setResetSent(true);
+          } catch {
+            setMessage("Password reset is temporarily unavailable.");
+          } finally { setBusy(false); }
+        }}>Set or reset password</button>
       </form>}
+      {resetSent && <p role="status" className="mt-3 text-sm text-muted">If a Metis account exists for that email, you’ll receive a password reset link.</p>}
       {message && <p role="alert" className="mt-3 text-sm text-bad">{message}</p>}
     </div>
   </main>;

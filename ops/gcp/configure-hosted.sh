@@ -8,6 +8,7 @@ APP="${APP:-/opt/metis}"
 : "${METIS_LOCAL_LLM_MODEL:?set an installed server Ollama inference model}"
 : "${METIS_LOCAL_EMBED_MODEL:?set an installed server Ollama embedding model}"
 export METIS_FIREBASE_PROJECT_ID METIS_LOCAL_LLM_MODEL METIS_LOCAL_EMBED_MODEL
+export METIS_FLOW_MODEL="${METIS_FLOW_MODEL-$METIS_LOCAL_LLM_MODEL}"
 config_file="$(mktemp)"
 trap 'rm -f "$config_file"' EXIT
 python3 "$APP/ops/gcp/render-hosted-env.py" >"$config_file"
@@ -16,7 +17,7 @@ python3 - <<'PY'
 import json, os, urllib.request
 with urllib.request.urlopen('http://127.0.0.1:11434/api/tags', timeout=5) as response:
     models = {m['name'] for m in json.load(response)['models']}
-for key in ('METIS_LOCAL_LLM_MODEL', 'METIS_LOCAL_EMBED_MODEL'):
+for key in ('METIS_LOCAL_LLM_MODEL', 'METIS_LOCAL_EMBED_MODEL', 'METIS_FLOW_MODEL'):
     value = os.environ[key]
     if value not in models and value + ':latest' not in models:
         raise SystemExit(f'{key}: model is not installed on this server')

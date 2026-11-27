@@ -22,16 +22,24 @@ def render(env: dict[str, str]) -> str:
         "METIS_EMBED_ENGINE": "local",
         "METIS_LOCAL_LLM_ENDPOINT": "http://127.0.0.1:11434",
     }
-    for key in ("METIS_LOCAL_LLM_MODEL", "METIS_LOCAL_EMBED_MODEL"):
-        value = env.get(key, "")
+    for key in ("METIS_LOCAL_LLM_MODEL", "METIS_LOCAL_EMBED_MODEL", "METIS_FLOW_MODEL"):
+        default = values["METIS_LOCAL_LLM_MODEL"] if key == "METIS_FLOW_MODEL" else ""
+        value = env.get(key, default)
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}", value):
             raise ValueError(f"set {key} to an already installed server model")
         values[key] = value
+    values["METIS_FLOW_MODEL_ENDPOINT"] = values["METIS_LOCAL_LLM_ENDPOINT"]
     web = env.get("METIS_WEB_ORIGIN", "https://metis-delta.vercel.app")
     parsed = urlsplit(web)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("METIS_WEB_ORIGIN must be an HTTPS origin")
-    if parsed.path not in ("", "/") or parsed.query or parsed.fragment or any(c.isspace() for c in web):
+    if (
+        parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+        or "," in web
+        or any(c.isspace() for c in web)
+    ):
         raise ValueError("METIS_WEB_ORIGIN must be an HTTPS origin without a path")
     values["METIS_CORS_ORIGINS"] = ",".join(
         [

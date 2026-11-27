@@ -30,6 +30,12 @@ _NEGATION = re.compile(
     re.IGNORECASE,
 )
 _ADDRESS = re.compile(r"\b(?:https?://|www\.)\S+|\b[\w.+-]+@[\w.-]+\.\w+\b", re.IGNORECASE)
+_CALENDAR_WORD = re.compile(
+    r"\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"january|february|march|april|may|june|july|august|september|october|november|december|"
+    r"today|tomorrow|yesterday|tonight)\b",
+    re.IGNORECASE,
+)
 
 _FORMAT: dict[str, Any] = {
     "type": "object",
@@ -38,10 +44,11 @@ _FORMAT: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-_SYSTEM = """You clean a finalized speech transcript for insertion into the user's focused app.
-Remove filler words and abandoned false starts. Apply only explicit self-corrections. Improve punctuation,
-paragraphs, and concise structure while preserving the user's meaning and language. Never invent or infer
-facts. Never add a date, time, number, name, URL, email address, commitment, task, reminder, or negation.
+_SYSTEM = """Copyedit deterministic_cleanup for insertion into the user's focused app.
+Keep its capitalization and terminal punctuation unless correcting an error. Remove filler and abandoned
+false starts. Fix obvious transcription errors only when the intended wording is clear. Apply explicit
+self-corrections only when they leave dates, times, numbers, names, addresses, and negation unchanged.
+Preserve the user's meaning and language. Never invent or infer facts or commitments.
 Return exactly one JSON object matching the supplied schema. The text is a derivative; the original is kept
 separately."""
 
@@ -136,7 +143,11 @@ class OllamaPolisher:
             raise ValueError("local cleanup model returned an invalid response") from exc
         if not candidate:
             raise ValueError("local cleanup model removed the entire transcript")
-        _guard_semantics(raw_text, deterministic_text, candidate, protected_terms)
+        _guard_semantics(deterministic_text, candidate, protected_terms)
+        if deterministic_text[-1] in ".?!" and candidate[-1] not in ".?!":
+            candidate += deterministic_text[-1]
+        if deterministic_text[0].isupper() and candidate[0].islower():
+            candidate = candidate[0].upper() + candidate[1:]
         return ModelPolish(candidate, self.model_id, len(raw_text))
 
 
@@ -157,31 +168,18 @@ def from_env() -> OllamaPolisher | None:
 
 
 def _guard_semantics(
-    raw: str,
     deterministic_text: str,
     candidate: str,
     protected_terms: tuple[str, ...],
 ) -> None:
-    """Reject high-risk meaning drift without pretending to prove equivalence.
-
-    Explicit self-correction can legitimately remove an earlier number or name,
-    so those values may be removed but never introduced.  Negation cannot be
-    safely dropped or added and therefore must match exactly.
-    """
+    """Reject changes to dates, numbers, addresses, negation and glossary terms."""
 
     def normalized(pattern: re.Pattern[str], value: str) -> Counter[str]:
         return Counter(match.group(0).casefold().rstrip(".,;:!?") for match in pattern.finditer(value))
 
-    raw_numbers = normalized(_NUMBER, raw)
-    candidate_numbers = normalized(_NUMBER, candidate)
-    raw_addresses = normalized(_ADDRESS, raw)
-    candidate_addresses = normalized(_ADDRESS, candidate)
-    if candidate_numbers - raw_numbers:
-        raise ValueError("local cleanup model introduced a number or time")
-    if candidate_addresses - raw_addresses:
-        raise ValueError("local cleanup model introduced an address")
-    if normalized(_NEGATION, raw) != normalized(_NEGATION, candidate):
-        raise ValueError("local cleanup model changed negation")
+    for pattern in (_NUMBER, _CALENDAR_WORD, _ADDRESS, _NEGATION):
+        if normalized(pattern, deterministic_text) != normalized(pattern, candidate):
+            raise ValueError("local cleanup model changed a date, number, address, or negation")
 
     protected_source = deterministic_text.casefold()
     candidate_folded = candidate.casefold()

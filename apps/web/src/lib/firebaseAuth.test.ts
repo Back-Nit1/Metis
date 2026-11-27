@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthError, authMode } from "./auth";
-import { loadFirebase, refreshFirebase, saveFirebase, signInFirebase } from "./firebaseAuth";
+import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase } from "./firebaseAuth";
 const config = { apiKey: "public-key", projectId: "metis-test" };
 afterEach(() => vi.unstubAllGlobals());
 
 describe("hosted authentication", () => {
   it("requires per-user auth on hosted desktop and never uses the password proxy", () => {
     expect(authMode({ VITE_METIS_LOGIN: "password" }, true, true).kind).toBe("misconfigured");
+    expect(authMode({ VITE_METIS_LOGIN: "firebase" }, false).kind).toBe("misconfigured");
     expect(authMode({ VITE_METIS_FIREBASE_API_KEY: config.apiKey }, true, true)).toEqual({ kind: "misconfigured", missing: ["VITE_METIS_FIREBASE_PROJECT_ID"] });
     expect(authMode({ VITE_METIS_FIREBASE_API_KEY: config.apiKey, VITE_METIS_FIREBASE_PROJECT_ID: config.projectId }, true, true)).toEqual({ kind: "firebase", config });
   });
@@ -32,6 +33,14 @@ describe("hosted authentication", () => {
     await expect(refreshFirebase(config, previous)).rejects.toBeInstanceOf(AuthError);
     vi.stubGlobal("fetch", vi.fn(async () => new Response('{"idToken":"fake"}')));
     await expect(signInFirebase(config, "e", "p")).rejects.toBeInstanceOf(AuthError);
+  });
+  it("requests a password reset from Identity Platform", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response("{}"));
+    vi.stubGlobal("fetch", fetch);
+    await resetFirebasePassword(config, "person@example.test");
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=public-key");
+    expect(JSON.parse(String(init.body))).toEqual({ requestType: "PASSWORD_RESET", email: "person@example.test" });
   });
   it("isolates remembered sessions by project and clears them on logout", () => {
     const data = new Map<string, string>();

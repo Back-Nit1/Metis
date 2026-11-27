@@ -308,9 +308,6 @@ class _Handler(BaseHTTPRequestHandler):
                 out = self._decode(bytes(s.pcm), s.language, self._terms(s.cfg), wait=FINISH_WAIT_SECONDS)
                 if out is None:
                     return self._error(ErrorCode.RATE_LIMITED, "decoder is busy", retry_after_seconds=1)
-                # Cancellation or expiry while decoding discards the result.
-                flow.end(session_id, owner=owner)
-                finishing_id = None
                 text, segments, meta = out
                 meta["adapter_mode"] = (
                     "local" if meta.get("adapter_mode") == "cloud" else meta["adapter_mode"]
@@ -324,7 +321,13 @@ class _Handler(BaseHTTPRequestHandler):
                     "model_id": None,
                     "fallback": False,
                 }
-                if self.server.model_polisher is not None and result.text:
+                protected_edits = {"scratch_that", "new_paragraph", "new_line", "snippets"}
+                if (
+                    self.server.model_polisher is not None
+                    and result.text
+                    and result.style != "literal"
+                    and protected_edits.isdisjoint(result.applied)
+                ):
                     try:
                         model_result = self.server.model_polisher.polish(
                             raw_text=text,
@@ -341,6 +344,9 @@ class _Handler(BaseHTTPRequestHandler):
                         # cleanup pass degrades to the deterministic result.
                         log.warning("model dictation cleanup rejected; using deterministic fallback")
                         cleanup["fallback"] = True
+                # Keep the slot through cleanup. Cancellation or expiry discards the result.
+                flow.end(session_id, owner=owner)
+                finishing_id = None
                 return self._send(
                     200,
                     {

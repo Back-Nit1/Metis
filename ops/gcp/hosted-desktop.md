@@ -17,9 +17,10 @@ launch time with an HTTPS origin. No server secret belongs in a desktop build.
    VM's memory budget alongside Whisper. The cutover script checks the models
    are installed; it does not download models or provision compute. Record the
    exact model names and verify a real extraction and embedding before rollout.
-3. Merge the implementation to `main`, run checks, and deploy that commit with
-   the existing GCP deployment command. Back up and verify the database/object
-   store before changing the authentication mode. Keep the existing backups.
+3. Deploy from `main` with the public identity configuration below. Caddy
+   serves the web app at the GCP origin and sends `/v1/*` to the API. A build
+   without identity configuration shows a setup message. Back up and verify
+   the database/object store before changing authentication mode.
 
 The existing VM was verified running during development; neither Identity
 Toolkit nor Firebase API appeared enabled in the project. These prerequisites
@@ -33,8 +34,14 @@ On the VM, after deploying the main commit:
 sudo env METIS_FIREBASE_PROJECT_ID=metis-dev-856337 \
   METIS_LOCAL_LLM_MODEL='<installed-inference-model>' \
   METIS_LOCAL_EMBED_MODEL='<installed-embedding-model>' \
+  METIS_FLOW_MODEL='<installed-dictation-chat-model>' \
   bash /opt/metis/ops/gcp/configure-hosted.sh
 ```
+
+Flow uses its chat model only after the final Whisper decode. It falls back to
+deterministic cleanup if the model fails or the response fails the cleanup
+checks. Omit `METIS_FLOW_MODEL` to reuse the extraction/planning chat model.
+The separate embedding model serves semantic retrieval.
 
 The script writes `/etc/metis-hosted.env` and systemd drop-ins loaded after
 legacy environment files. It clears the shared desktop secret **in the running
@@ -47,21 +54,18 @@ To roll back, remove only the `zz-hosted.conf` files installed by this script,
 reload systemd, and restart the five listed services. This restores the old
 single-user configuration, not a multi-user fallback inside the new client.
 
-## Client builds
+## Browser deployment and native build
 
 ```bash
 export VITE_METIS_FIREBASE_PROJECT_ID=metis-dev-856337
 export VITE_METIS_FIREBASE_API_KEY='<public-web-api-key>'
+PROJECT=metis-dev-856337 bash ops/gcp/deploy.sh
 export VITE_METIS_API=https://34-30-254-78.sslip.io
 pnpm --filter @metis/desktop tauri build
-# For the browser build/deployment from main:
-PROJECT=metis-dev-856337 bash ops/vercel/deploy.sh
 ```
 
-The hosted Vercel deployment uses direct per-user authenticated GCP requests
-and removes the old shared-key login/proxy functions from its deployment
-artifact. The legacy flow is available only with `METIS_LEGACY_SINGLE_USER=true`.
-Missing desktop identity configuration fails closed with a setup message.
+After cutover, direct browser users to the GCP URL. The old Vercel shared-key
+proxy loses access when the server switches to per-user authentication.
 
 ## Verification and existing data
 

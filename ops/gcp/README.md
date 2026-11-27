@@ -1,8 +1,8 @@
 # GCP operations
 
 Metis currently runs as a single `e2-medium` Compute Engine VM in
-`us-central1-a`. Caddy is the public TLS edge; the API, worker, speech service,
-and static server bind to loopback. Caddy can balance across additional private
+`us-central1-a`. Caddy serves the browser app and proxies API traffic over
+loopback. Caddy can balance across additional private
 API nodes through `METIS_API_UPSTREAMS`, but one VM is not high availability.
 The ordinary API process admits at most 200 concurrent connections or tasks and keeps a
 200-connection socket backlog. This is independent of the exact rolling limit
@@ -18,7 +18,9 @@ PROJECT=metis-dev-856337 ops/gcp/deploy.sh
 ```
 
 The deploy installs the Ops Agent, validates Caddy before reload, restarts the
-six Metis systemd services, and verifies `/v1/health`. The VM identity has log/metric writer roles and object-creator access scoped
+five Metis systemd services, and verifies `/v1/health`. See
+[hosted desktop cutover](hosted-desktop.md) for the public sign-in configuration.
+The VM identity has log/metric writer roles and object-creator access scoped
 to the backup bucket. VM deletion
 protection is enabled and its boot disk does not auto-delete with the instance;
 these guard against accidental deletion but are not substitutes for backups.
@@ -120,7 +122,7 @@ hold reminder timers behind its decoder call.
 
 Each service has `MemoryHigh` for reclaim pressure and `MemoryMax` for a hard
 resident limit. Speech gets 1536 MiB maximum, jobs 384 MiB, API 512 MiB,
-long-polls 256 MiB, timers 160 MiB, web 96 MiB, and Caddy 192 MiB. Backups have
+long-polls 256 MiB, timers 160 MiB, and Caddy 192 MiB. Backups have
 256 MiB. The host has a persistent 2 GiB swap file with bounded per-service
 swap use. These are starting budgets, not measured peak guarantees: inspect
 `systemctl show <unit> -p MemoryCurrent -p MemoryPeak -p MemorySwapCurrent`

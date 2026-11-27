@@ -38,7 +38,7 @@ def ollama():
 
 
 def test_model_polish_is_structured_and_final_only(ollama: ThreadingHTTPServer) -> None:
-    _Ollama.reply = "Send the launch plan Friday at 3pm."
+    _Ollama.reply = "send the launch plan Friday at 3pm"
     polisher = OllamaPolisher("qwen-test", endpoint=f"http://127.0.0.1:{ollama.server_port}")
     result = polisher.polish(
         raw_text="um send the launch plan Friday at 3pm",
@@ -47,7 +47,7 @@ def test_model_polish_is_structured_and_final_only(ollama: ThreadingHTTPServer) 
         style="standard",
         protected_terms=(),
     )
-    assert result.text == _Ollama.reply
+    assert result.text == "Send the launch plan Friday at 3pm."
     assert _Ollama.request["stream"] is False
     assert _Ollama.request["format"]["required"] == ["text"]
     assert _Ollama.request["options"]["temperature"] == 0
@@ -60,6 +60,8 @@ def test_model_polish_is_structured_and_final_only(ollama: ThreadingHTTPServer) 
         "I agree.",  # removed negation
         "Do not send it to new@example.com.",  # invented address
         "Ask them about it.",  # removed protected name
+        "Do not send it to Cerno Thursday at 3pm.",  # changed named date
+        "Do not send it to Cerno Friday.",  # removed time
     ],
 )
 def test_semantic_drift_is_rejected(ollama: ThreadingHTTPServer, reply: str) -> None:

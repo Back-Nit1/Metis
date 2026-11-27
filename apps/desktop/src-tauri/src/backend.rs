@@ -392,10 +392,26 @@ impl Backend for HttpBackend {
                 };
                 let st = stack.status();
                 if st.recording_allowed {
-                    Ok(())
-                } else {
-                    Err(format!("not_ready: stack is {}", st.state))
+                    return Ok(());
                 }
+                // Name the blocking service so the user sees what is not ready.
+                let blocker = st
+                    .services
+                    .iter()
+                    .find(|s| s.phase != crate::stack::Phase::Ready)
+                    .map(|s| {
+                        format!(
+                            "{} is {:?}{}",
+                            s.name,
+                            s.phase,
+                            s.detail
+                                .as_deref()
+                                .map(|d| format!(": {}", clip(d, 160)))
+                                .unwrap_or_default()
+                        )
+                    })
+                    .unwrap_or_else(|| format!("stack is {}", st.state));
+                Err(format!("not_ready: {blocker}"))
             }
         }
     }

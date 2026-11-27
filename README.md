@@ -30,10 +30,10 @@ inference and fixture transcription are labelled as such in the UI):
 | Contracts | v1, generated from Pydantic (101 artifacts), verified by `make contracts-check`. |
 | API | FastAPI with bearer auth, `Idempotency-Key` replay, `409` on stale revisions, durable exports, daily-plan enqueueing, desktop-local auth. |
 | State / pipeline / scheduler / retrieval / planner | SQLite store with transactional outbox, local worker loop, honest reminder states, scoped search, deterministic plan validation. |
-| Web | React/Vite PWA: capture, proposals, Today, plans, projects, search, settings, export, optional Cognito PKCE (only when `VITE_METIS_COGNITO_*` is set), desktop HUD route. |
+| UI | React/Vite UI loaded by the Tauri shell: capture, proposals, Today, plans, projects, search, settings, export, HUD route. Firebase/Identity Platform sign-in on the hosted desktop. |
 | Dictation ("Flow") | Hold-to-dictate sessions on the speech server (chunked PCM, provisional partials, finalize on release), deterministic cleanup with dictionary, snippets and per-app style, settings under `Preferences.flow`. Server side only: desktop insertion is not built (ADR 0005). |
 | Desktop | Tauri HTTPS client with native capture, dictation and HUD. Per-user sign-in; no bundled Python backend or model weights. Built on aarch64 macOS only. |
-| Infra | CDK app synthesizes 7 stacks (`make synth`), template assertions pass. `ops/` has runbook, cost worksheet and procedures. |
+| Ops | GCP VM deploy, backups and monitoring scripts in `ops/gcp/`. |
 | Checks | `make check`, `make test` (python, web, E2E in `tests/e2e`) and `pnpm --filter @metis/desktop test` pass. Exact counts: `docs/progress.md`. |
 
 What is **not** done or **not verified**, stated plainly:
@@ -43,27 +43,20 @@ What is **not** done or **not verified**, stated plainly:
   desktop path still needs a live-account microphone and concurrency pass.
 - **No hardware pass.** The global shortcut, microphone capture and the HUD
   window have not been exercised by a person. Steps are in the desktop handoff.
-- **The AWS stack is not deployed.** Every AWS check is UNRUN (`ops/runbook.md`).
-  DynamoDB parity is tested against a SQLite-backed stand-in, not DynamoDB. The
-  only deployment is the private GCP dev VM below, which runs local mode.
 - **Known product defects** are strict `xfail` tests in `tests/e2e/` (spoken
   "already registered"/"cancel that", registration-reminder suppression,
   duplicate registration task, project attachment of captured notes).
 - **Desktop packaging** is unsigned and un-notarized, one target triple. The hosted debug app builds without backend/model resources (~37 MB).
 - **Fixture extraction** is the only extraction in local mode.
-- **One login, not accounts.** The Vercel UI has a single username/password
-  (checked at the edge proxy); the VM API accepts one random key
-  (`/etc/metis-api.env`) that only the proxy holds. There is no per-user
-  identity or rotation UI; sign-in attempts are rate limited per client.
 - **Dictation is not usable end to end.** Desktop shortcut, text insertion, the
   settings UI, spoken self-correction and Command Mode are not built.
 
 ## Requirements
 
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/)
-- Node 20+ and pnpm 9 (web, infra, and the desktop CLI)
+- Node 20+ and pnpm 9 (UI build and the desktop CLI)
 - Rust (via [rustup](https://rustup.rs)) only for `apps/desktop/`
-- No AWS account, no API key, no Docker for the default path
+- No cloud account, no API key, no Docker for the default path
 
 ## Local setup
 
@@ -105,7 +98,7 @@ configuration fails closed. Hold-to-talk is `Cmd+Option+Space`; dictation is
 `Cmd+Option+D`. Neither requires a local Whisper, Ollama, API or SQLite process.
 The old local stack remains available for isolated backend integration tests.
 
-### Deployment (GCP VM + Vercel UI)
+### Deployment (GCP VM)
 
 Follow [the hosted cutover runbook](ops/gcp/hosted-desktop.md). Deploy only
 committed `main`. `METIS_MODE=server` uses the database and object directory
@@ -140,12 +133,11 @@ Local mode (without desktop auth) accepts any bearer token and resolves it to
 make bootstrap     # install python + node dependencies
 make contracts     # regenerate schemas + metis.ts from the Pydantic models
 make contracts-check  # fail if the committed artifacts are stale
-make dev           # API + worker + web
+make dev           # API + worker + desktop (tauri dev)
 make api / worker  # just one of them
 make test          # python unit tests + web unit tests
 make check         # contracts-check, ruff, ruff format, mypy, tsc
 make fmt           # autoformat
-make synth         # cdk synth (no AWS calls, no deploy)
 make test-integration  # tests needing real audio decoding or a container
 make speech-bench  # WER + name/date/negation fidelity on the fixture set
 make clean         # remove caches and local build output
@@ -154,18 +146,17 @@ make clean         # remove caches and local build output
 ## Layout
 
 ```
-apps/web/            React + TS + Vite PWA
+apps/web/            React + TS + Vite UI loaded by the Tauri shell
 apps/desktop/        Tauri hosted client, native capture/dictation, local test stack
 packages/contracts/  JSON Schema, generated TS, Pydantic, fixtures
-services/api/        FastAPI app + Lambda adapter
-services/state/      StateStore: SQLite (local) + DynamoDB (cloud)
+services/api/        FastAPI app
+services/state/      StateStore: SQLite + filesystem objects
 services/pipeline/   jobs, outbox dispatcher, extraction workers
 services/scheduler/  schedule sync + reminder dispatch
 services/speech/     owned faster-whisper ASR worker + Dockerfile
 services/retrieval/  memory ingestion, embeddings, scoped search
 services/planner/    context assembly, plan generation, validation
-infra/               AWS CDK stacks
-ops/                 runbooks, cost worksheet, procedures; gcp/ and vercel/ deploy
+ops/                 environment notes; gcp/ deploy, backup, monitoring
 tests/e2e/           cross-feature scenarios (fixture adapters)
 docs/                spec extracts, ADRs, progress ledger
 ```
@@ -190,8 +181,8 @@ These are checked by code and tests, not just documented:
    sync.
 6. **Budgets before calls.** Estimated cost is reserved atomically before a paid
    model call and settled after. Deterministic reminders make no model calls.
-7. **No credentials in the browser.** No AWS keys, no Bedrock calls and no model
-   ids in `apps/web/`.
+7. **No credentials in the UI bundle.** No server secrets, no direct model calls
+   and no model ids in `apps/web/`.
 
 ## Contributing
 

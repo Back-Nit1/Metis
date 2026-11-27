@@ -87,6 +87,7 @@ def test_transcript_correction_supersedes_proposal_index_and_keeps_later_manual_
     assert pending["source_version"] == 1
     after = h.state.get(USER, "memory", memory.id)
     assert after.indexed_at is None, "the superseded index request must not embed outdated text"
+    assert after.validity.value == "superseded", "old-version memory is kept as history, not as current"
     assert h.client.get(f"/v1/tasks/{task_id}").json()["title"] == "My wording", "manual edit preserved"
 
 
@@ -133,3 +134,15 @@ def test_one_utterance_creates_one_registration_task(h):
     accept_all(h, cap)
     titles = [t["title"].lower() for t in h.client.get("/v1/tasks").json()["items"]]
     assert len([t for t in titles if t.startswith("register")]) == 1
+
+
+def test_identical_content_is_stored_and_indexed_once(h):
+    text = "I tried the stale cache approach and it failed."
+    for name in ("dup1", "dup2"):
+        cap = capture(h, text, idem=key(name)).json()["capture_id"]
+        h.tick()
+        accept_all(h, cap)
+    h.drain()
+    memories = [m for m in h.state.list_memories(USER, limit=50).items if "stale cache" in m.content]
+    assert len(memories) == 1, "the second copy must not create or queue another memory"
+    assert memories[0].indexed_at is not None, "the one copy is indexed"

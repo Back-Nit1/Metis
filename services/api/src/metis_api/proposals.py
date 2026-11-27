@@ -488,9 +488,14 @@ def _maybe_reminder(
 
 
 def _record_memory(ctx: RequestContext, item: ExtractedItem, source: Any, now: datetime) -> None:
-    """Persist a thought/decision/work log as memory and request indexing."""
-    from metis_contracts import Memory, OutboxEvent
-    from metis_retrieval import KIND_MAP, content_hash, memory_content_for
+    """Persist a thought/decision/work log as memory and request indexing.
+
+    The memory id is derived from the owner and the content hash, so identical
+    text is stored and queued once. A repeat is a no-op, except that a memory
+    superseded by a transcript correction is revived at the new version.
+    """
+    from metis_contracts import Memory, MemoryValidity, OutboxEvent
+    from metis_retrieval import KIND_MAP, content_hash, memory_content_for, memory_id_for
 
     kind = KIND_MAP.get(item.kind)
     if kind is None:
@@ -499,9 +504,27 @@ def _record_memory(ctx: RequestContext, item: ExtractedItem, source: Any, now: d
     if not content.strip():
         return
     ref = _ref(item, source)
-    embedder = ctx.adapters.embedder
+    digest = content_hash(content)
+    memory_id = memory_id_for(ctx.user_id, digest)
+    existing = ctx.state.get(ctx.user_id, "memory", memory_id)
+    if existing is not None:
+        if existing.validity is not MemoryValidity.CURRENT and all(
+            r.source_id == ref.source_id and r.source_version < ref.source_version
+            for r in existing.source_refs
+        ):
+            # Same text survived a correction: point it at the new version.
+            # The stored vector is unchanged, so nothing is re-indexed.
+            with ctx.state.transaction(ctx.user_id) as tx:
+                tx.put(
+                    "memory",
+                    existing.model_copy(
+                        update={"validity": MemoryValidity.CURRENT, "source_refs": [ref], "updated_at": now}
+                    ),
+                    expected_revision=existing.revision,
+                )
+        return
     memory = Memory(
-        id=new_id("mem"),
+        id=memory_id,
         user_id=ctx.user_id,
         created_at=now,
         updated_at=now,
@@ -509,33 +532,38 @@ def _record_memory(ctx: RequestContext, item: ExtractedItem, source: Any, now: d
         content=content,
         effective_at=source.captured_at,
         source_refs=[ref],
-        content_hash=content_hash(content),
-        embedding_model_id=getattr(embedder, "model_id", None),
-        embedding_dimensions=getattr(embedder, "dimensions", None),
+        content_hash=digest,
+        # Model id and dimensions are recorded by the index handler; probing
+        # the embedder here would make accepting a proposal depend on it.
         project_id=_project_id_for(ctx, item.project_hint, content) or source.project_id,
     )
-    with ctx.state.transaction(ctx.user_id) as tx:
-        stored = tx.put("memory", memory)
-        tx.append_outbox(
-            OutboxEvent(
-                id=new_id("obx"),
-                user_id=ctx.user_id,
-                created_at=now,
-                updated_at=now,
-                event_type=EventType.MEMORY_INDEX_REQUESTED,
-                target_id=stored.id,
-                target_revision=ref.source_version,
-                correlation_id=ctx.correlation_id,
-                idempotency_key=f"index:{stored.id}:{stored.content_hash}",
-                payload={
-                    "memory_id": stored.id,
-                    "source_id": ref.source_id,
-                    "source_version": ref.source_version,
-                    "content_hash": stored.content_hash,
-                },
-                available_at=now,
+    try:
+        with ctx.state.transaction(ctx.user_id) as tx:
+            stored = tx.put("memory", memory)
+            tx.append_outbox(
+                OutboxEvent(
+                    id=new_id("obx"),
+                    user_id=ctx.user_id,
+                    created_at=now,
+                    updated_at=now,
+                    event_type=EventType.MEMORY_INDEX_REQUESTED,
+                    target_id=stored.id,
+                    target_revision=ref.source_version,
+                    correlation_id=ctx.correlation_id,
+                    idempotency_key=f"index:{stored.id}:{stored.content_hash}",
+                    payload={
+                        "memory_id": stored.id,
+                        "source_id": ref.source_id,
+                        "source_version": ref.source_version,
+                        "content_hash": stored.content_hash,
+                    },
+                    available_at=now,
+                )
             )
-        )
+    except MetisError as exc:
+        # A concurrent accept stored it first, or the owner deleted this exact text.
+        if exc.code not in (ErrorCode.REVISION_CONFLICT, ErrorCode.TOMBSTONED):
+            raise
 
 
 def _project_id_for(ctx: RequestContext, hint: str | None, content: str) -> str | None:

@@ -382,10 +382,12 @@ class MemoryStore(Protocol):
         project_id: str | None = None,
         kinds: Sequence[str] = (),
         include_historical: bool = False,
+        include_unassigned: bool = False,
         limit: int = 20,
     ) -> list[tuple[str, float, dict[str, Any]]]:
         """Return ``(memory_id, score, metadata)``, highest score first.
 
+        ``include_unassigned`` widens a project scope to memories with no project.
         The index returns identifiers, never stored copies: the caller
         hydrates each hit from authoritative state and drops anything whose
         owner or source version no longer matches, so a stale or

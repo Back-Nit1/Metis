@@ -18,6 +18,7 @@ from .ingestion import (
     mark_superseded,
     memories_from_proposal,
     memory_content_for,
+    memory_id_for,
     needs_embedding,
 )
 from .memory_store import (
@@ -55,6 +56,7 @@ __all__ = [
     "mark_superseded",
     "memories_from_proposal",
     "memory_content_for",
+    "memory_id_for",
     "needs_embedding",
     "parse_file",
     "semantic_available",

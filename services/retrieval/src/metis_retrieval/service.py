@@ -224,14 +224,15 @@ class RetrievalService:
         limit: int = 20,
         include_historical: bool = False,
         origins: Sequence[str] = (),
+        kinds: Sequence[str] = (),
     ) -> tuple[list[SearchResult], str | None]:
         """Hybrid (semantic + keyword) search over memories and the corpus.
 
-        Every result carries a citation in ``evidence``. A project scope limits
-        the search to that project's memories: corpus chunks have no project.
-        The second element explains any degradation (index down, keyword only).
+        Every result carries a citation in ``evidence``. A project scope or a
+        memory-kind filter limits the search to memories: corpus chunks have
+        neither. The second element explains any degradation.
         """
-        if project_id is not None:
+        if project_id is not None or kinds:
             origins = ("memory",)
         hits, unavailable, keyword_only = self._hybrid(
             user_id,
@@ -240,6 +241,7 @@ class RetrievalService:
             limit=limit,
             include_historical=include_historical,
             origins=origins,
+            kinds=kinds,
         )
         results = [
             SearchResult(
@@ -264,6 +266,7 @@ class RetrievalService:
         project_id: str | None = None,
         limit: int = 20,
         include_historical: bool = False,
+        kinds: Sequence[str] = (),
     ) -> DecomposedSearch:
         """``search``, split into sub-queries when a local planner is enabled."""
 
@@ -274,6 +277,7 @@ class RetrievalService:
                 project_id=project_id,
                 limit=limit,
                 include_historical=include_historical,
+                kinds=kinds,
             )
 
         if self._decomposer is None:
@@ -289,6 +293,8 @@ class RetrievalService:
         limit: int,
         include_historical: bool,
         origins: Sequence[str],
+        kinds: Sequence[str] = (),
+        include_unassigned: bool = False,
     ) -> tuple[list[_Hit], str | None, str | None]:
         """Fuse semantic + keyword per lane (RRF), cap the corpus share, hydrate.
 
@@ -310,7 +316,9 @@ class RetrievalService:
                 # Planning and reminders must keep working without the index.
                 unavailable = degraded or "the memory index is unavailable"
             else:
-                lane = MemoryLane(self._memory, user_id, project_id, include_historical)
+                lane = MemoryLane(
+                    self._memory, user_id, project_id, include_historical, include_unassigned, kinds
+                )
                 retriever = lane_retriever(
                     lane, k=limit, embed=embed, keyword=bool(getattr(self._memory, "supports_lexical", False))
                 )
@@ -326,7 +334,7 @@ class RetrievalService:
             except Exception as exc:
                 unavailable = "; ".join(filter(None, [unavailable, f"corpus retrieval degraded: {exc}"]))
 
-        memory_hits = self._hydrate_memories(user_id, memory_docs)
+        memory_hits = self._hydrate_memories(user_id, memory_docs, include_historical=include_historical)
         corpus_hits = self._hydrate_chunks(user_id, corpus, corpus_docs)
         if want_memory:
             # Memories are first-class; imported content takes at most its share.
@@ -352,7 +360,9 @@ class RetrievalService:
             return None, f"keyword search only: the embedding model is unavailable ({exc})"
         return embed, None
 
-    def _hydrate_memories(self, user_id: str, docs: list[Document]) -> list[_Hit]:
+    def _hydrate_memories(
+        self, user_id: str, docs: list[Document], *, include_historical: bool
+    ) -> list[_Hit]:
         hits: list[_Hit] = []
         stale = 0
         for doc in docs:
@@ -363,6 +373,9 @@ class RetrievalService:
                 continue
             if memory.user_id != user_id:
                 log.error("memory %s belongs to another owner; dropped before any prompt", memory_id)
+                continue
+            if not include_historical and memory.validity.value != "current":
+                stale += 1  # superseded since indexing; authoritative state wins
                 continue
             if not self._source_is_current(user_id, memory):
                 stale += 1
@@ -434,6 +447,8 @@ class RetrievalService:
             limit=settings().limits.retrieval_candidates,
             include_historical=True,
             origins=(),
+            # Most memories carry no project; they still explain a project's task.
+            include_unassigned=True,
         )
         if degraded and not hits:
             log.info("no evidence for task %s: %s", task.id, degraded)

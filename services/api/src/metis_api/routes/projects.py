@@ -153,11 +153,10 @@ def search(body: SearchRequest, ctx: Context) -> SearchResponse:
         project_id=body.project_id,
         limit=body.limit,
         include_historical=body.include_historical,
+        # Filtered inside the index, so the limit counts only matching kinds.
+        kinds=[k.value for k in body.kinds],
     )
     results, degraded = found.results, found.degraded
-    kinds = {k.value for k in body.kinds}
-    if kinds:  # corpus hits carry no memory kind, so a kind filter keeps memories only
-        results = [r for r in results if r.kind is not None and r.kind.value in kinds]
     reasons = degraded.split("; ") if degraded else []
     keyword_only = any(r.startswith("keyword search only") for r in reasons)
     return SearchResponse(
@@ -166,7 +165,7 @@ def search(body: SearchRequest, ctx: Context) -> SearchResponse:
         # matching and adds semantic matching only with a real embedding model.
         mode_used="lexical" if keyword_only else "hybrid",
         index_available=all(r.startswith("keyword search only") for r in reasons),
-        index_stale=False,
+        index_stale=_index_behind(ctx),
         degraded_reason="; ".join(filter(None, [degraded, found.note]))[:300] or None,
         decomposition=found.mode,
         sub_queries=found.sub_queries,
@@ -207,3 +206,23 @@ def resume_project(project_id: str, body: ResumeProjectRequest, ctx: Context) ->
             if m.source_refs
         ],
     }
+
+
+def _index_behind(ctx: Any) -> bool:
+    """True while some of the owner's content is not yet searchable: a corpus
+    ingest is queued or running, or a memory has not been indexed.
+
+    ponytail: scans the owner's memories per search; track an unindexed count
+    in the state store if that ever shows up in latency.
+    """
+    ingest = next((lane for lane in ctx.state.queue_stats(ctx.user_id).lanes if lane.lane == "ingest"), None)
+    if ingest is not None and ingest.pending + ingest.leased > 0:
+        return True
+    cursor = None
+    while True:
+        page = ctx.state.list_memories(ctx.user_id, cursor=cursor, limit=200)
+        if any(m.indexed_at is None and m.validity.value == "current" for m in page.items):
+            return True
+        if not page.next_cursor:
+            return False
+        cursor = page.next_cursor

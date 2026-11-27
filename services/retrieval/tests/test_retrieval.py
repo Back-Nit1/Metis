@@ -437,3 +437,60 @@ def test_a_dimension_mismatch_is_rejected_rather_than_compared():
     with pytest.raises(MetisError) as exc:
         cosine([0.1, 0.2], [0.1, 0.2, 0.3])
     assert exc.value.code is ErrorCode.VALIDATION_FAILED
+
+
+# --- regressions: scope, negation window, unassigned evidence, kinds ------- #
+
+
+def test_project_scoped_keyword_search_is_not_crowded_out(store, memory_store, clock, service):
+    add_source(store, clock)
+    for i in range(80):
+        add_memory(
+            store, memory_store, clock, memory_id=f"mem_o{i}", content=f"kafka retry {i}", project_id="p_x"
+        )
+    long = "kafka retry decision " + "filler words here " * 40
+    add_memory(store, memory_store, clock, memory_id="mem_t", content=long, project_id="p_a")
+    hits = memory_store.query(USER, text="kafka retry", project_id="p_a", limit=20)
+    assert [h[0] for h in hits] == ["mem_t"]
+
+
+def test_negation_widening_needs_a_whole_word_near_the_span():
+    text = "x" * 400 + "I know the plan works" + "y" * 400
+    assert len(context_window(text, start=400, end=421)) < 400, "'know' is not 'no'"
+    far = "not " + "z" * 600 + "the plan works" + "z" * 600
+    assert len(context_window(far, start=604, end=618)) < 400, "a distant negation does not widen"
+
+
+def test_task_evidence_includes_unassigned_memories(store, memory_store, clock, service):
+    add_source(store, clock)
+    add_memory(
+        store, memory_store, clock, memory_id="mem_u", content="diff-aware invalidation idea", project_id=None
+    )
+    task = add_task(store, clock, project_id="p_a")
+    evidence = service.evidence_for_task(USER, task, budget=EvidenceBudget(max_tokens=5000))
+    assert [e.memory_id for e in evidence] == ["mem_u"]
+
+
+def test_kind_filter_applies_before_the_limit(store, memory_store, clock, service):
+    add_source(store, clock)
+    for i in range(5):
+        add_memory(
+            store, memory_store, clock, memory_id=f"mem_i{i}", content=f"cache plan {i}", kind=MemoryKind.IDEA
+        )
+    add_memory(
+        store, memory_store, clock, memory_id="mem_d", content="cache plan final", kind=MemoryKind.DECISION
+    )
+    results, _ = service.search(USER, query="cache plan", limit=2, kinds=["decision"])
+    assert [r.memory_id for r in results] == ["mem_d"]
+
+
+def test_superseded_in_state_is_dropped_even_if_index_says_current(store, memory_store, clock, service):
+    from metis_retrieval import mark_superseded
+
+    add_source(store, clock)
+    memory = add_memory(store, memory_store, clock, memory_id="mem_s", content="warm cache approach")
+    with store.transaction(USER) as tx:
+        tx.put("memory", mark_superseded(memory, clock=clock), expected_revision=memory.revision)
+    assert service.search(USER, query="warm cache")[0] == []
+    historical, _ = service.search(USER, query="warm cache", include_historical=True)
+    assert [r.memory_id for r in historical] == ["mem_s"]

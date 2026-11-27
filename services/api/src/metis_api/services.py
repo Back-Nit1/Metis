@@ -333,12 +333,20 @@ def patch_transcript(ctx: RequestContext, capture_id: str, request: PatchTranscr
     )
 
     superseded = _supersede_proposals(ctx, capture_id, source.current_version)
+    stale_memories = _memories_of(ctx, capture_id)
     suspended = _suspend_dependent_reminders(ctx, capture_id, previous, request.text)
+
+    from metis_retrieval import mark_superseded
 
     with ctx.state.transaction(ctx.user_id) as tx:
         stored = tx.put("source", updated, expected_revision=source.revision)
         for proposal in superseded:
             tx.put("proposal", proposal["record"], expected_revision=proposal["revision"])
+        for memory in stale_memories:
+            # Kept as history; retrieval drops it unless history is asked for.
+            tx.put(
+                "memory", mark_superseded(memory, clock=ctx.adapters.clock), expected_revision=memory.revision
+            )
         tx.append_outbox(
             _outbox(
                 ctx,
@@ -357,6 +365,28 @@ def patch_transcript(ctx: RequestContext, capture_id: str, request: PatchTranscr
     if suspended:
         log.info("suspended %d reminder(s) pending clarification of a corrected date", len(suspended))
     return get_capture(ctx, capture_id)
+
+
+def _memories_of(ctx: RequestContext, source_id: str) -> list[Any]:
+    """Current memories citing ``source_id``.
+
+    ponytail: full scan of the owner's memories; add a source index to the
+    state store if one user's memory count makes corrections slow.
+    """
+    from metis_contracts import MemoryValidity
+
+    found: list[Any] = []
+    cursor = None
+    while True:
+        page = ctx.state.list_memories(ctx.user_id, cursor=cursor, limit=200)
+        found.extend(
+            m
+            for m in page.items
+            if m.validity is MemoryValidity.CURRENT and any(r.source_id == source_id for r in m.source_refs)
+        )
+        if not page.next_cursor:
+            return found
+        cursor = page.next_cursor
 
 
 def _supersede_proposals(ctx: RequestContext, source_id: str, old_version: int) -> list[dict[str, Any]]:

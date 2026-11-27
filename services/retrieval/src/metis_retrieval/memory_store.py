@@ -178,34 +178,38 @@ class SqliteMemoryStore:
         project_id: str | None = None,
         kinds: Sequence[str] = (),
         include_historical: bool = False,
+        include_unassigned: bool = False,
         limit: int = 20,
     ) -> list[tuple[str, float, dict[str, Any]]]:
         """Return ``(memory_id, score, metadata)``, highest score first.
+
+        ``include_unassigned`` widens a project scope to memories with no project.
 
         Scores rank candidates. They are not probabilities, urgency or
         priority, and the caller re-validates every hit against authoritative
         state before using it.
         """
         bounded = max(1, min(limit, self.capabilities.max_top_k))
-        clauses = ["user_id = ?"]
+        clauses = ["v.user_id = ?"]
         params: list[Any] = [user_id]
         if project_id:
-            clauses.append("project_id = ?")
+            clauses.append(
+                "(v.project_id = ? OR v.project_id IS NULL)" if include_unassigned else "v.project_id = ?"
+            )
             params.append(project_id)
         if kinds:
-            clauses.append(f"kind IN ({','.join('?' for _ in kinds)})")
+            clauses.append(f"v.kind IN ({','.join('?' for _ in kinds)})")
             params.extend(kinds)
         if not include_historical:
-            clauses.append("validity = 'current'")
+            clauses.append("v.validity = 'current'")
+        where = " AND ".join(clauses)
 
         with self._lock:
-            rows = self._conn.execute(
-                f"SELECT * FROM vectors WHERE {' AND '.join(clauses)}", params
-            ).fetchall()
+            rows = self._conn.execute(f"SELECT * FROM vectors v WHERE {where}", params).fetchall()
 
         lexical_scores: dict[str, float] = {}
         if text:
-            lexical_scores = self._lexical(user_id, text, bounded * 3)
+            lexical_scores = self._lexical(user_id, text, bounded * 3, where, params)
 
         scored: list[tuple[str, float, dict[str, Any]]] = []
         for row in rows:
@@ -241,8 +245,12 @@ class SqliteMemoryStore:
         scored.sort(key=lambda item: item[1], reverse=True)
         return scored[:bounded]
 
-    def _lexical(self, user_id: str, text: str, limit: int) -> dict[str, float]:
-        """FTS5 match. Carries exact identifiers that embeddings blur."""
+    def _lexical(
+        self, user_id: str, text: str, limit: int, where: str, params: list[Any]
+    ) -> dict[str, float]:
+        """FTS5 match within the caller's scope. Carries exact identifiers that
+        embeddings blur. The scope is applied before the limit, so matches in
+        other projects cannot crowd out the ones asked for."""
         terms = [t for t in "".join(c if c.isalnum() or c in "-_." else " " for c in text).split() if t]
         if not terms:
             return {}
@@ -250,9 +258,11 @@ class SqliteMemoryStore:
         try:
             with self._lock:
                 rows = self._conn.execute(
-                    """SELECT memory_id, bm25(memory_fts) AS rank FROM memory_fts
-                       WHERE user_id = ? AND memory_fts MATCH ? ORDER BY rank LIMIT ?""",
-                    (user_id, query, limit),
+                    f"""SELECT f.memory_id, bm25(memory_fts) AS rank FROM memory_fts f
+                        JOIN vectors v ON v.user_id = f.user_id AND v.memory_id = f.memory_id
+                        WHERE f.user_id = ? AND memory_fts MATCH ? AND {where}
+                        ORDER BY rank LIMIT ?""",
+                    (user_id, query, *params, limit),
                 ).fetchall()
         except sqlite3.OperationalError:
             return {}
@@ -357,6 +367,7 @@ class S3VectorsMemoryStore:
         project_id: str | None = None,
         kinds: Sequence[str] = (),
         include_historical: bool = False,
+        include_unassigned: bool = False,
         limit: int = 20,
     ) -> list[tuple[str, float, dict[str, Any]]]:
         if vector is None:
@@ -364,7 +375,8 @@ class S3VectorsMemoryStore:
             return []
         metadata_filter: dict[str, Any] = {"user_id": user_id}
         if project_id:
-            metadata_filter["project_id"] = project_id
+            # Unassigned memories are stored with project_id "".
+            metadata_filter["project_id"] = {"$in": [project_id, ""]} if include_unassigned else project_id
         if kinds:
             metadata_filter["kind"] = {"$in": list(kinds)}
         if not include_historical:

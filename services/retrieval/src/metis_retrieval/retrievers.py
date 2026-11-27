@@ -103,29 +103,27 @@ class MemoryLane:
     user_id: str
     project_id: str | None
     include_historical: bool
+    include_unassigned: bool = False
+    kinds: Sequence[str] = ()
     name: str = "memory"
 
-    def keyword(self, query: str, k: int) -> list[str]:
+    def _query(self, k: int, **match: Any) -> list[str]:
         hits = self.store.query(
             self.user_id,
-            vector=None,
-            text=query,
             project_id=self.project_id,
+            kinds=self.kinds,
             include_historical=self.include_historical,
+            include_unassigned=self.include_unassigned,
             limit=k,
+            **match,
         )
         return [h[0] for h in hits]
 
+    def keyword(self, query: str, k: int) -> list[str]:
+        return self._query(k, vector=None, text=query)
+
     def semantic(self, vector: Sequence[float], k: int) -> list[str]:
-        hits = self.store.query(
-            self.user_id,
-            vector=vector,
-            text=None,
-            project_id=self.project_id,
-            include_historical=self.include_historical,
-            limit=k,
-        )
-        return [h[0] for h in hits]
+        return self._query(k, vector=vector, text=None)
 
 
 @dataclass

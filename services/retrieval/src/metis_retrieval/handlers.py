@@ -50,30 +50,26 @@ def handle_memory_index(envelope: EventEnvelope, context: DispatchContext) -> No
     if memory.content_hash != payload.content_hash:
         raise MetisError(ErrorCode.REVISION_CONFLICT, "the memory content changed; a newer request exists")
 
+    indexed = memory.model_copy(
+        update={
+            "indexed_at": context.clock.now(),
+            "indexed_source_version": payload.source_version,
+            "embedding_model_id": context.embedder.model_id,
+        }
+    )
+    # Memory ids derive from the content hash, so a known hash means this very
+    # memory is already in the index (a redelivery): nothing to embed or write.
     known = getattr(context.memory_store, "known_hashes", None)
     known_hashes = known(envelope.user_id, context.embedder.model_id) if known else set()
-    if not needs_embedding(memory, known_hashes):
-        log.info("reusing the existing embedding for %s", memory.id)
-        vectors = None
-    else:
+    if needs_embedding(memory, known_hashes):
         vectors = context.embedder.embed([memory.content])
-
-    if vectors is not None:
-        context.memory_store.upsert(envelope.user_id, [memory], vectors)
+        context.memory_store.upsert(envelope.user_id, [indexed], vectors)
+        indexed = indexed.model_copy(update={"embedding_dimensions": len(vectors[0])})
+    else:
+        log.info("%s is already indexed with %s", memory.id, context.embedder.model_id)
 
     with state.transaction(envelope.user_id) as tx:
-        tx.put(
-            "memory",
-            memory.model_copy(
-                update={
-                    "indexed_at": context.clock.now(),
-                    "indexed_source_version": payload.source_version,
-                    "embedding_model_id": context.embedder.model_id,
-                    "embedding_dimensions": context.embedder.dimensions,
-                }
-            ),
-            expected_revision=memory.revision,
-        )
+        tx.put("memory", indexed, expected_revision=memory.revision)
 
 
 @registry.register(EventType.MEMORY_PURGE_REQUESTED)

@@ -13,7 +13,9 @@ Chunking rules that matter more than the search algorithm:
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,7 +25,6 @@ from metis_contracts import (
     MemoryValidity,
     SourceArtifact,
     SourceRef,
-    new_id,
 )
 from metis_contracts.enums import ExtractedItemKind
 
@@ -60,6 +61,7 @@ MEANING_CARRIERS = (
     "don't",
     "won't",
 )
+_CARRIER_RE = re.compile(r"\b(?:" + "|".join(re.escape(c) for c in MEANING_CARRIERS) + r")\b", re.IGNORECASE)
 
 
 def context_window(text: str, *, start: int, end: int, pad: int = 160) -> str:
@@ -69,11 +71,11 @@ def context_window(text: str, *, start: int, end: int, pad: int = 160) -> str:
     abandonment marker, because dropping it would invert the meaning.
     """
     lo, hi = max(0, start - pad), min(len(text), end + pad)
-    snippet = text[lo:hi]
-    if any(carrier in text.lower() for carrier in MEANING_CARRIERS):
+    # Whole words only, and only near the span: "no" must not match "know",
+    # and a negation elsewhere in a long note says nothing about this span.
+    if _CARRIER_RE.search(text[lo:hi]):
         lo, hi = max(0, start - pad * 2), min(len(text), end + pad * 2)
-        snippet = text[lo:hi]
-    return " ".join(snippet.split())
+    return " ".join(text[lo:hi].split())
 
 
 def memory_content_for(item: Any, source: SourceArtifact) -> str:
@@ -137,17 +139,20 @@ def memories_from_proposal(
         ref = item.evidence[0] if item.evidence else None
         if ref is None:
             continue  # a memory without a source cannot be evidence
-        content = memory_content_for(item, source)
+        content = memory_content_for(item, source)[:8000]
         if not content.strip():
             continue
+        mem_id = memory_id_for(source.user_id, content_hash(content))
+        if any(m.id == mem_id for m in memories):
+            continue  # same text twice in one proposal is one memory
         memories.append(
             Memory(
-                id=new_id("mem"),
+                id=mem_id,
                 user_id=source.user_id,
                 created_at=now,
                 updated_at=now,
                 kind=kind,
-                content=content[:8000],
+                content=content,
                 project_id=None,
                 validity=MemoryValidity.CURRENT,
                 effective_at=source.captured_at,
@@ -167,22 +172,21 @@ def memories_from_proposal(
     return memories
 
 
+def memory_id_for(user_id: str, content_hash: str) -> str:
+    """One memory per owner per distinct content. Identical text maps to the
+    same id, so it is stored, queued and indexed once, never twice."""
+    return "mem_" + hashlib.sha256(f"{user_id}:{content_hash}".encode()).hexdigest()[:24]
+
+
 def needs_embedding(memory: Memory, known_hashes: set[str]) -> bool:
     """Reuse an unchanged embedding rather than paying for it again."""
     return memory.content_hash not in known_hashes
 
 
-def mark_superseded(previous: Memory, *, successor_id: str, clock: Any) -> Memory:
+def mark_superseded(previous: Memory, *, clock: Any) -> Memory:
     """Supersede rather than delete: past alternatives stay inspectable.
 
     A high similarity score must not keep a superseded version in play as if it
-    were current.
+    were current; retrieval drops non-current memories unless history is asked for.
     """
-    return previous.model_copy(
-        update={
-            "validity": MemoryValidity.SUPERSEDED,
-            "supersedes_id": previous.supersedes_id,
-            "updated_at": clock.now(),
-            "entity_refs": [*previous.entity_refs, successor_id],
-        }
-    )
+    return previous.model_copy(update={"validity": MemoryValidity.SUPERSEDED, "updated_at": clock.now()})

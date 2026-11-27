@@ -207,7 +207,9 @@ function PasswordGate({ children }: { children: ReactNode }) {
 export function AuthGate({ children }: { children: ReactNode }) {
   const env = import.meta.env as Record<string, string | undefined>;
   const mode = authMode(env, isDesktop(), isHostedDesktop());
-  if (mode.kind === "firebase") return <FirebaseGate config={mode.config}>{children}</FirebaseGate>;
+  if (mode.kind === "firebase" || mode.kind === "firebase-cookie") {
+    return <FirebaseGate config={mode.config} useBrowserCookie={mode.kind === "firebase-cookie"}>{children}</FirebaseGate>;
+  }
   if (mode.kind === "none")
     return env.VITE_METIS_LOGIN === "password" && !isDesktop() ? (
       <PasswordGate>{children}</PasswordGate>

@@ -93,3 +93,93 @@ def test_captures_are_saved_on_server_and_isolated_by_verified_user(client, adap
     assert second.json()["capture_id"] != source_id
     assert client.post("/v1/captures", headers=alice, json=body).json()["capture_id"] == source_id
     assert adapters.state_store.get("alice", "source", source_id).transcripts[0].text == body["text"]
+
+
+def test_browser_session_is_bound_to_the_tab_and_revoked_on_sign_out(client, monkeypatch, tokens):
+    for key, value in {
+        "METIS_MODE": "server",
+        "METIS_ENV": "prod",
+        "METIS_ALLOW_FIXTURE_IDENTITY": "false",
+        "METIS_INFERENCE_ENGINE": "local",
+        "METIS_LOCAL_LLM_MODEL": "chat-test",
+        "METIS_LOCAL_EMBED_MODEL": "embed-test",
+        "METIS_SPEECH_ENGINE": "faster_whisper",
+    }.items():
+        monkeypatch.setenv(key, value)
+    configure(monkeypatch)
+    from metis_api.browser_session import BINDING_HEADER, COOKIE
+
+    origin = "https://testserver"
+    session_url = origin + "/v1/session"
+    preferences = origin + "/v1/preferences"
+
+    def sign_in(subject="alice", **claims):
+        return client.post(
+            session_url,
+            headers={"Origin": origin, "Authorization": "Bearer " + tokens(subject, **claims)},
+        )
+
+    def rotate():
+        response = sign_in("bob")
+        assert response.status_code == 204
+        return response.headers[BINDING_HEADER]
+
+    assert client.get(session_url).status_code == 401
+    assert client.post(session_url, headers={"Authorization": "Bearer " + tokens()}).status_code == 403
+    assert sign_in(auth_time=int(time.time()) - 901).status_code == 401
+    created = sign_in()
+    assert created.status_code == 204
+    cookie = created.headers["set-cookie"]
+    assert all(option in cookie for option in (COOKIE, "HttpOnly", "Secure", "Path=/", "SameSite=lax"))
+    assert "Domain=" not in cookie
+    alice_binding = created.headers[BINDING_HEADER]
+    alice_token = client.cookies.get(COOKIE)
+    assert client.get(session_url).headers[BINDING_HEADER] == alice_binding
+    assert client.get(preferences).status_code == 401
+    assert client.get(preferences, headers={BINDING_HEADER: alice_binding}).status_code == 200
+    capture = client.post(
+        origin + "/v1/captures",
+        headers={"Origin": origin, BINDING_HEADER: alice_binding, "Idempotency-Key": "browser-capture"},
+        json={
+            "kind": "text",
+            "text": "Alice's note",
+            "capture_timezone": "UTC",
+            "captured_at": "2026-11-26T12:00:00Z",
+        },
+    )
+    assert capture.status_code == 201
+    assert (
+        client.delete(
+            session_url, headers={"Origin": "https://other.test", BINDING_HEADER: alice_binding}
+        ).status_code
+        == 403
+    )
+    bob_binding = rotate()
+    assert bob_binding != alice_binding
+    assert client.get(preferences, headers={BINDING_HEADER: alice_binding}).status_code == 401
+    assert client.get(preferences, headers={BINDING_HEADER: bob_binding}).status_code == 200
+    assert (
+        client.get(
+            origin + "/v1/captures/" + capture.json()["capture_id"],
+            headers={BINDING_HEADER: bob_binding},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            preferences, headers={"Cookie": f"{COOKIE}={alice_token}", BINDING_HEADER: alice_binding}
+        ).status_code
+        == 401
+    )
+    assert client.patch(preferences, json={}, headers={BINDING_HEADER: bob_binding}).status_code == 403
+    bob_token = client.cookies.get(COOKIE)
+    assert (
+        client.delete(session_url, headers={"Origin": origin, BINDING_HEADER: bob_binding}).status_code == 204
+    )
+    assert (
+        client.get(
+            preferences, headers={"Cookie": f"{COOKIE}={bob_token}", BINDING_HEADER: bob_binding}
+        ).status_code
+        == 401
+    )
+    assert client.get(preferences, headers={"Authorization": "Bearer " + tokens()}).status_code == 200

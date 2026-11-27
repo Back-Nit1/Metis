@@ -114,9 +114,18 @@ if [ -z "$(g compute instances describe "$VM" --zone "$ZONE" --format='value(net
 fi
 HOST="${IP//./-}.sslip.io"
 export VITE_METIS_API="" VITE_METIS_LOGIN=firebase
+METIS_GOOGLE_SIGN_IN=false
+if [ "${METIS_BROWSER_SESSIONS:-false}" = true ]; then
+  export VITE_METIS_LOGIN=firebase-cookie
+  if [ -n "${VITE_METIS_GOOGLE_CLIENT_ID:-}" ]; then
+    export VITE_METIS_GOOGLE_CLIENT_ID
+    METIS_GOOGLE_SIGN_IN=true
+  fi
+fi
 
 # Validate the edge inputs before copying or changing anything on the VM.
 HOST="$HOST" METIS_API_UPSTREAMS="$METIS_API_UPSTREAMS" METIS_CHANGES_UPSTREAMS="$METIS_CHANGES_UPSTREAMS" \
+  METIS_GOOGLE_SIGN_IN="$METIS_GOOGLE_SIGN_IN" \
   ops/gcp/render-caddyfile.sh >/dev/null
 
 # Build the web client from the same commit, in a clean export.
@@ -134,8 +143,8 @@ for _ in $(seq 20); do ssh_ready && break; sleep 6; done
 g compute scp --zone "$ZONE" --tunnel-through-iap "$stage.tar.gz" "$VM:/tmp/metis.tar.gz"
 g compute scp --zone "$ZONE" --tunnel-through-iap "$stage/ops/gcp/vm-setup.sh" "$VM:/tmp/vm-setup.sh"
 rm -f "$stage.tar.gz"
-printf -v VM_SETUP_COMMAND 'sudo env HOST=%q METIS_API_UPSTREAMS=%q METIS_CHANGES_UPSTREAMS=%q METIS_BACKUP_BUCKET=%q METIS_BUILD=%q bash /tmp/vm-setup.sh' \
-  "$HOST" "$METIS_API_UPSTREAMS" "$METIS_CHANGES_UPSTREAMS" "$METIS_BACKUP_BUCKET" "$BUILD_SHA"
+printf -v VM_SETUP_COMMAND 'sudo env HOST=%q METIS_API_UPSTREAMS=%q METIS_CHANGES_UPSTREAMS=%q METIS_BACKUP_BUCKET=%q METIS_BUILD=%q METIS_GOOGLE_SIGN_IN=%q bash /tmp/vm-setup.sh' \
+  "$HOST" "$METIS_API_UPSTREAMS" "$METIS_CHANGES_UPSTREAMS" "$METIS_BACKUP_BUCKET" "$BUILD_SHA" "$METIS_GOOGLE_SIGN_IN"
 g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "$VM_SETUP_COMMAND"
 
 cat <<EOF

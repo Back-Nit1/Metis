@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthError, authMode } from "./auth";
-import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase } from "./firebaseAuth";
+import { browserSession, endBrowserSession } from "./browserSession";
+import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase, signInFirebaseWithGoogle } from "./firebaseAuth";
 const config = { apiKey: "public-key", projectId: "metis-test" };
 afterEach(() => vi.unstubAllGlobals());
 
@@ -41,6 +42,38 @@ describe("hosted authentication", () => {
     const [url, init] = fetch.mock.calls[0]!;
     expect(url).toBe("https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=public-key");
     expect(JSON.parse(String(init.body))).toEqual({ requestType: "PASSWORD_RESET", email: "person@example.test" });
+  });
+  it("exchanges a Google credential through the configured Identity Platform project", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response(
+      JSON.stringify({ idToken: "firebase-id", refreshToken: "refresh", expiresIn: "3600" }),
+    ));
+    vi.stubGlobal("window", { location: { origin: "https://metis.example.test" } });
+    vi.stubGlobal("fetch", fetch);
+    expect((await signInFirebaseWithGoogle(config, "google-id")).accessToken).toBe("firebase-id");
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=public-key");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      postBody: "id_token=google-id&providerId=google.com", requestUri: "https://metis.example.test",
+    });
+  });
+  it("exchanges an ID token for a same-origin cookie and revokes it on sign-out", async () => {
+    const binding = "a".repeat(64);
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) =>
+      new Response(null, { status: 204, headers: { "X-Metis-Session": binding } }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    expect(await browserSession("id-token")).toBe(binding);
+    expect(await browserSession()).toBe(binding);
+    await endBrowserSession(binding);
+    expect(fetch.mock.calls).toEqual([
+      ["/v1/session", expect.objectContaining({ method: "POST", credentials: "same-origin", headers: { Authorization: "Bearer id-token" } })],
+      ["/v1/session", expect.objectContaining({ method: "GET", headers: undefined })],
+      ["/v1/session", expect.objectContaining({ method: "DELETE", headers: { "X-Metis-Session": binding } })],
+    ]);
+    const env = { VITE_METIS_LOGIN: "firebase-cookie", VITE_METIS_API: "", VITE_METIS_FIREBASE_API_KEY: config.apiKey, VITE_METIS_FIREBASE_PROJECT_ID: config.projectId };
+    expect(authMode(env, false).kind).toBe("firebase-cookie");
+    expect(authMode({ ...env, VITE_METIS_API: "https://elsewhere.test" }, false).kind).toBe("misconfigured");
+    expect(authMode(env, true, true).kind).toBe("firebase");
   });
   it("isolates remembered sessions by project and clears them on logout", () => {
     const data = new Map<string, string>();

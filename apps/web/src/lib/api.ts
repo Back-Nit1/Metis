@@ -137,21 +137,33 @@ export const subscribeAuthToken = (l: () => void) => (tokenListeners.add(l), () 
  * and the bearer (null for local fixture mode or a same-origin cookie session).
  * Null when the desktop runtime is not connected.
  */
-export function syncCredentials(): { baseUrl: string; token: string | null } | null {
+export function syncCredentials(): { baseUrl: string; token: string | null; browserSession?: string } | null {
   if (isDesktop()) {
     const base = desktopBase();
     return base ? { baseUrl: base, token: isHostedDesktop() ? authToken : desktopBearer() } : null;
   }
   const page = globalThis.location?.href ?? "http://localhost/";
-  return { baseUrl: new URL(API_BASE || "/", page).href.replace(/\/$/, ""), token: authToken };
+  return {
+    baseUrl: new URL(API_BASE || "/", page).href.replace(/\/$/, ""),
+    token: authToken,
+    ...(browserSession ? { browserSession } : {}),
+  };
 }
 
 /** Called when a signed-in request is refused as unauthenticated (expired or revoked session). */
 let onUnauthenticated: (() => void) | null = null;
-/** True while a proxy login cookie (not a bearer) is what authenticates this tab. */
+/** True while a cookie authenticates this tab. */
 let cookieSession = false;
+let browserSession: string | null = null;
 export function setCookieSession(on: boolean): void {
   cookieSession = on;
+}
+export function setBrowserSession(binding: string | null): void {
+  browserSession = binding;
+  setCookieSession(binding !== null);
+}
+export function reportBrowserSessionExpired(): void {
+  if (browserSession) onUnauthenticated?.();
 }
 export function setUnauthenticatedHandler(handler: (() => void) | null): void {
   onUnauthenticated = handler;
@@ -161,7 +173,9 @@ function authHeaders(url: string): Record<string, string> {
   if (isDesktop() && !isHostedDesktop()) return desktopAuthFor(url);
   const page = globalThis.location?.href;
   const sameOrigin = new URL(url, page).origin === new URL(baseUrl() || "/", page).origin;
-  return sameOrigin && authToken ? { Authorization: `Bearer ${authToken}` } : {};
+  if (!sameOrigin) return {};
+  if (authToken) return { Authorization: `Bearer ${authToken}` };
+  return browserSession ? { "X-Metis-Session": browserSession } : {};
 }
 
 /** Server-supplied work packet for a project (the route has no response model in the contract). */

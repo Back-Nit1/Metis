@@ -67,6 +67,37 @@ pnpm --filter @metis/desktop tauri build
 After cutover, direct browser users to the GCP URL. The old Vercel shared-key
 proxy loses access when the server switches to per-user authentication.
 
+## Browser sessions and Google sign-in
+
+Build with `METIS_BROWSER_SESSIONS=true` on the same GCP origin as the API.
+The browser exchanges a recent Identity Platform sign-in for a 12-hour
+HttpOnly cookie. The VM stores hashed session IDs alongside the SQLite data
+directory in `browser-sessions.db`. A browser restores its session on reload
+and signing out revokes that session on the VM. Desktop clients continue
+sending Identity Platform bearer tokens.
+
+To show the Google button, configure a Google OAuth web client with the exact
+GCP HTTPS origin, add the domain to Identity Platform's authorized domains,
+enable its Google provider, and export the public
+`VITE_METIS_GOOGLE_CLIENT_ID` for the GCP web build. The browser sends the
+Google credential to Identity Platform for exchange. A provider collision
+can require the user to sign in with their original method.
+Use an owned, verified domain for the public Google OAuth rollout.
+See [Google OAuth production requirements](https://developers.google.com/identity/protocols/oauth2/production-readiness/policy-compliance).
+
+Existing invitees can use **Set or reset password** on the sign-in screen.
+Whether Google sign-in can provision a brand-new account is controlled by
+Identity Platform's project signup setting. Leave that setting disabled for
+the pilot. Review enrollment separately before opening self-service signup.
+Google and email/password sessions both authorize the Identity Platform UID.
+Provider configuration gives no account ownership over the legacy notebook.
+
+Verify a real Google sign-in and an email/password sign-in against the same
+test origin before enabling the browser build for users. Test page reload,
+sign-out, protected writes, and a second tab left open while another account
+signs in. Disabling a user in Identity Platform prevents new sign-ins. Existing
+Metis browser sessions expire independently within 12 hours.
+
 ## Verification and existing data
 
 Use two pilot accounts: create text and audio captures in account A, verify

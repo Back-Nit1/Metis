@@ -1,25 +1,35 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../components/Button";
-import { api, setAuthToken, setCookieSession, setUnauthenticatedHandler } from "../lib/api";
+import { GoogleSignIn } from "../components/GoogleSignIn";
+import { api, setAuthToken, setBrowserSession, setUnauthenticatedHandler } from "../lib/api";
 import { AuthError, type FirebaseConfig, type Session } from "../lib/auth";
+import { browserSession, endBrowserSession } from "../lib/browserSession";
 import { setDesktopSession } from "../lib/desktop";
-import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase } from "../lib/firebaseAuth";
+import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase, signInFirebaseWithGoogle } from "../lib/firebaseAuth";
 import { Outbox } from "../lib/outbox";
 import { AuthContext } from "./AuthGate";
 
-export function FirebaseGate({ config, children }: { config: FirebaseConfig; children: ReactNode }) {
+export function FirebaseGate({ config, useBrowserCookie, children }: {
+  config: FirebaseConfig;
+  useBrowserCookie: boolean;
+  children: ReactNode;
+}) {
   const [session, setSession] = useState<Session | null>(null);
+  const [cookieBinding, setCookieBinding] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
   const generation = useRef(0);
+  const submitting = useRef(false);
   // Stable primitive dependencies keep config object creation from restarting auth.
   const { apiKey, projectId } = config;
   const drop = useCallback((why: string | null) => {
     generation.current++;
     setAuthToken(null);
     setSession(null);
+    setBrowserSession(null);
+    setCookieBinding(null);
     saveFirebase({ apiKey, projectId }, null);
     new Outbox().clear();
     setMessage(why);
@@ -28,6 +38,14 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
 
   const accept = useCallback(async (next: Session, epoch: number) => {
     if (epoch !== generation.current) return;
+    if (useBrowserCookie) {
+      const binding = await browserSession(next.accessToken);
+      if (!binding) throw new AuthError("The Metis server could not verify your sign-in.");
+      if (epoch !== generation.current) return;
+      setBrowserSession(binding);
+      setCookieBinding(binding);
+      return;
+    }
     setAuthToken(next.accessToken);
     // Ask the authoritative server to verify this token before mounting any data UI.
     try {
@@ -40,16 +58,26 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
     } catch (error) {
       if (epoch === generation.current) { setAuthToken(null); throw error; }
     }
-  }, [apiKey, projectId]);
+  }, [apiKey, projectId, useBrowserCookie]);
 
   useEffect(() => {
     const epoch = ++generation.current;
     let live = true;
-    setCookieSession(false);
+    setBrowserSession(null);
     setAuthToken(null);
     new Outbox().clear();
     void (async () => {
       try {
+        if (useBrowserCookie) {
+          // Clear any bearer storage left by a previous browser build.
+          saveFirebase({ apiKey, projectId }, null);
+          const binding = await browserSession();
+          if (epoch === generation.current) {
+            setBrowserSession(binding);
+            setCookieBinding(binding);
+          }
+          return;
+        }
         await setDesktopSession(null);
         const saved = loadFirebase({ apiKey, projectId });
         if (saved) await accept(await refreshFirebase({ apiKey, projectId }, saved), epoch);
@@ -57,11 +85,12 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
       finally { if (live) setChecking(false); }
     })();
     return () => { live = false; generation.current++; };
-  }, [apiKey, projectId, accept, drop]);
+  }, [apiKey, projectId, accept, drop, useBrowserCookie]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session && !cookieBinding) return;
     setUnauthenticatedHandler(() => drop("Your session ended. Sign in again."));
+    if (!session) return () => setUnauthenticatedHandler(null);
     const timer = window.setTimeout(() => {
       const epoch = generation.current;
       void refreshFirebase({ apiKey, projectId }, session).then((next) => accept(next, epoch)).catch(() => {
@@ -69,22 +98,43 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
       });
     }, Math.max(1000, session.expiresAt - Date.now() - 60_000));
     return () => { window.clearTimeout(timer); setUnauthenticatedHandler(null); };
-  }, [session, apiKey, projectId, accept, drop]);
+  }, [session, cookieBinding, apiKey, projectId, accept, drop]);
 
-  if (session) return <AuthContext.Provider value={{ signedIn: true, signOut: () => drop(null) }}>{children}</AuthContext.Provider>;
+  async function authenticate(begin: () => Promise<Session>) {
+    if (submitting.current) return;
+    submitting.current = true;
+    const epoch = ++generation.current;
+    setBusy(true); setMessage(null); setResetSent(false);
+    try {
+      await accept(await begin(), epoch);
+    } catch (error) {
+      if (epoch === generation.current) drop(error instanceof AuthError ? error.message : "The Metis server could not verify your session.");
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  }
+
+  if (session || cookieBinding) {
+    function signOut() {
+      if (!cookieBinding) return drop(null);
+      void endBrowserSession(cookieBinding).then(() => drop(null)).catch(() =>
+        setMessage("Metis could not end your session. Try signing out again."),
+      );
+    }
+    return <AuthContext.Provider value={{ signedIn: true, signOut }}>
+      {message && <p role="alert" className="p-3 text-sm text-bad">{message}</p>}
+      {children}
+    </AuthContext.Provider>;
+  }
+  const googleClientId = useBrowserCookie ? import.meta.env.VITE_METIS_GOOGLE_CLIENT_ID?.trim() : "";
   return <main className="grid min-h-dvh place-items-center bg-canvas p-6 text-ink">
     <div className="w-full max-w-sm">
       <h1 className="text-center font-serif text-xl font-semibold">Metis</h1>
       {checking ? <p role="status" className="mt-3 text-center text-sm text-muted">Checking your session…</p> : <form className="mt-3" onSubmit={async (event) => {
         event.preventDefault();
         const fields = new FormData(event.currentTarget);
-        const epoch = ++generation.current;
-        setBusy(true); setMessage(null); setResetSent(false);
-        try {
-          await accept(await signInFirebase({ apiKey, projectId }, String(fields.get("email")), String(fields.get("password"))), epoch);
-        } catch (error) {
-          if (epoch === generation.current) drop(error instanceof AuthError ? error.message : "The Metis server could not verify your session.");
-        } finally { setBusy(false); }
+        await authenticate(() => signInFirebase(config, String(fields.get("email")), String(fields.get("password"))));
       }}>
         <p className="text-center text-sm text-muted">Sign in to your Metis account. Your notes and recordings are stored on the server.</p>
         <label className="mt-4 block text-sm" htmlFor="firebase-email">Email</label>
@@ -104,6 +154,8 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
           } finally { setBusy(false); }
         }}>Set or reset password</button>
       </form>}
+      {!checking && googleClientId && <GoogleSignIn clientId={googleClientId} disabled={busy}
+        onCredential={(credential) => { void authenticate(() => signInFirebaseWithGoogle(config, credential)); }} />}
       {resetSent && <p role="status" className="mt-3 text-sm text-muted">If a Metis account exists for that email, you’ll receive a password reset link.</p>}
       {message && <p role="alert" className="mt-3 text-sm text-bad">{message}</p>}
     </div>

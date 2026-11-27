@@ -16,6 +16,7 @@ export type FirebaseConfig = { apiKey: string; projectId: string };
 
 export type AuthMode =
   | { kind: "firebase"; config: FirebaseConfig }
+  | { kind: "firebase-cookie"; config: FirebaseConfig }
   | { kind: "none" }
   | { kind: "misconfigured"; missing: string[] }
   | { kind: "cognito"; config: AuthConfig };
@@ -28,10 +29,13 @@ const KEYS = ["VITE_METIS_COGNITO_DOMAIN", "VITE_METIS_COGNITO_CLIENT_ID", "VITE
 export function authMode(env: Env, desktop: boolean, hosted = false): AuthMode {
   if (desktop && !hosted) return { kind: "none" };
   const firebaseKeys = ["VITE_METIS_FIREBASE_API_KEY", "VITE_METIS_FIREBASE_PROJECT_ID"];
-  if (hosted || env.VITE_METIS_LOGIN === "firebase" || firebaseKeys.some((k) => env[k]?.trim())) {
+  const useCookie = !desktop && env.VITE_METIS_LOGIN === "firebase-cookie";
+  if (hosted || useCookie || env.VITE_METIS_LOGIN === "firebase" || firebaseKeys.some((k) => env[k]?.trim())) {
     const missing = firebaseKeys.filter((k) => !env[k]?.trim());
+    if (useCookie && env.VITE_METIS_API !== "") missing.push("same-origin API configuration");
     return missing.length ? { kind: "misconfigured", missing } : {
-      kind: "firebase", config: { apiKey: env.VITE_METIS_FIREBASE_API_KEY!.trim(), projectId: env.VITE_METIS_FIREBASE_PROJECT_ID!.trim() },
+      kind: useCookie ? "firebase-cookie" : "firebase",
+      config: { apiKey: env.VITE_METIS_FIREBASE_API_KEY!.trim(), projectId: env.VITE_METIS_FIREBASE_PROJECT_ID!.trim() },
     };
   }
   const present = KEYS.filter((k) => env[k]?.trim());

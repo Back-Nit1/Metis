@@ -10,7 +10,7 @@ from metis_contracts import CONTRACT_VERSION, ErrorCode, EventType, JobState, Me
 from metis_contracts.api import CreateExportRequest, ExportStatusResponse, HealthResponse, JobAccepted
 from metis_contracts.entities import Job, ObjectRef, OutboxEvent
 
-from ..auth import principal_from_header
+from ..browser_session import principal_for_request
 from ..deps import Context, RequestContext, get_adapters, is_loopback_client
 
 router = APIRouter(prefix="/v1", tags=["ops"])
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/v1", tags=["ops"])
 
 def _is_authenticated(request: Request, authorization: str | None) -> bool:
     try:
-        principal = principal_from_header(authorization)
+        principal = principal_for_request(request, authorization)
     except MetisError:
         return False
     # Same rule as get_context: the credential-free demo subject is loopback-only.

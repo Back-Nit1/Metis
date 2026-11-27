@@ -16,6 +16,14 @@ grep -Fq 'file_server' "$tmp/default.caddy"
 grep -Fq "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com" "$tmp/default.caddy"
 grep -Fq 'log {' "$tmp/default.caddy"
 grep -Fq 'duration_format seconds' "$tmp/default.caddy"
+if grep -Fq 'accounts.google.com/gsi/' "$tmp/default.caddy"; then
+  echo 'Google sign-in origins require explicit configuration' >&2
+  exit 1
+fi
+HOST=api.example.test METIS_GOOGLE_SIGN_IN=true "$renderer" >"$tmp/google.caddy"
+grep -Fq 'https://accounts.google.com/gsi/client' "$tmp/google.caddy"
+grep -Fq 'frame-src https://accounts.google.com/gsi/' "$tmp/google.caddy"
+grep -Fq 'Cross-Origin-Opener-Policy same-origin-allow-popups' "$tmp/google.caddy"
 if grep -Eq 'fail_duration|health_uri|max_fails|unhealthy_status' "$tmp/default.caddy"; then
   echo 'single backend must never be quarantined' >&2
   exit 1

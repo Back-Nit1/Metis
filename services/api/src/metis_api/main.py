@@ -22,7 +22,7 @@ from metis_contracts import CONTRACT_VERSION, ErrorBody, ErrorCode, MetisError, 
 from .deps import build_adapters
 from .guards import BodyLimitMiddleware, HostGuardMiddleware, clean_correlation_id
 from .rate_limit import ConnectionRateLimitMiddleware
-from .routes import captures, connectors, flow, notifications, plans, projects, reminders, tasks
+from .routes import captures, connectors, flow, notifications, plans, projects, reminders, session, tasks
 
 log = logging.getLogger("metis.api")
 
@@ -139,7 +139,7 @@ def create_app() -> FastAPI:
         log.exception("unhandled error correlation=%s", correlation_id)
         return _error_response(MetisError(ErrorCode.INTERNAL, "an unexpected error occurred"), correlation_id)
 
-    for module in (captures, tasks, reminders, plans, projects, notifications, connectors, flow):
+    for module in (captures, tasks, reminders, plans, projects, notifications, connectors, flow, session):
         app.include_router(module.router)
 
     @app.get("/", include_in_schema=False)

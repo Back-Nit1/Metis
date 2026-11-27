@@ -37,6 +37,7 @@ class Principal:
     user_id: str
     source: str  # "firebase", "cognito", "fixture" or "desktop"
     email: str | None = None
+    auth_time: int | None = None
 
     @property
     def is_fixture(self) -> bool:
@@ -194,7 +195,12 @@ def verify_firebase_token(token: str) -> Principal:
         raise MetisError(ErrorCode.UNAUTHENTICATED, "the token could not be verified") from exc
 
     email = claims.get("email")
-    return Principal(user_id=subject, source="firebase", email=email if isinstance(email, str) else None)
+    return Principal(
+        user_id=subject,
+        source="firebase",
+        email=email if isinstance(email, str) else None,
+        auth_time=auth_time,
+    )
 
 
 def _desktop_principal(authorization: str | None) -> Principal:

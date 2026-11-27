@@ -157,6 +157,7 @@ install -m 0644 "$APP/ops/gcp/systemd/metis-queue-observer.timer" \
 HOST="$HOST" \
   METIS_API_UPSTREAMS="${METIS_API_UPSTREAMS:-127.0.0.1:8000}" \
   METIS_CHANGES_UPSTREAMS="${METIS_CHANGES_UPSTREAMS:-127.0.0.1:8001}" \
+  METIS_GOOGLE_SIGN_IN="${METIS_GOOGLE_SIGN_IN:-false}" \
   "$APP/ops/gcp/render-caddyfile.sh" >/etc/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl enable -q caddy

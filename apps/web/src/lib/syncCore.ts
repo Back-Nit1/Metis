@@ -14,7 +14,7 @@ import type { ChangesResponse, QueueStats } from "../contracts/metis";
 export type SyncStatus = "connecting" | "live" | "offline" | "unauthorized" | "stopped";
 
 export type WorkerIn =
-  | { type: "start"; baseUrl: string; token: string | null }
+  | { type: "start"; baseUrl: string; token: string | null; browserSession?: string }
   | { type: "stop" }
   | { type: "token"; token: string | null };
 
@@ -98,6 +98,7 @@ export class SyncLoop {
   /** False until the baseline (history before the page loaded) has been skipped. */
   primed = false;
   private token: string | null = null;
+  private browserSession: string | undefined;
   private baseUrl = "";
   private failures = 0;
   private status: SyncStatus = "stopped";
@@ -114,6 +115,7 @@ export class SyncLoop {
       this.stop();
       this.baseUrl = message.baseUrl;
       this.token = message.token;
+      this.browserSession = message.browserSession;
       this.cursor = 0;
       this.primed = false;
       this.failures = 0;
@@ -168,7 +170,10 @@ export class SyncLoop {
     try {
       response = await this.deps.fetch(changesUrl(this.baseUrl, this.cursor, wait), {
         redirect: "error",
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+        headers: {
+          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+          ...(this.browserSession ? { "X-Metis-Session": this.browserSession } : {}),
+        },
         signal: timeout.signal,
       });
     } catch {

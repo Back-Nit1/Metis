@@ -1,5 +1,5 @@
 /**
- * The only place the browser talks to Metis.
+ * The only place the UI talks to Metis.
  *
  * Nothing here knows about a model, a provider or a cloud credential: the
  * client calls our own API and the server owns every paid call and every
@@ -60,10 +60,7 @@ import {
   type UploadInstructions,
   type UsageResponse,
 } from "../contracts/metis";
-import { desktopAuthFor, desktopBase, desktopBearer, isDesktop, isHostedDesktop } from "./desktop";
-
-export const API_BASE: string =
-  (import.meta.env?.VITE_METIS_API as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000";
+import { desktopAuthFor, desktopBase, desktopBearer, isHostedDesktop } from "./desktop";
 
 /** Desktop mode without a runtime connection: nothing is sent anywhere. */
 export class DesktopUnavailableError extends Error {
@@ -73,9 +70,8 @@ export class DesktopUnavailableError extends Error {
   }
 }
 
-/** Desktop: only the runtime loopback base, never a fallback. Browser: API_BASE. */
+/** Only the base the desktop runtime supplied, never a fallback. */
 function baseUrl(): string {
-  if (!isDesktop()) return API_BASE;
   const base = desktopBase();
   if (!base) throw new DesktopUnavailableError();
   return base;
@@ -133,49 +129,24 @@ export function setAuthToken(token: string | null): void {
 export const subscribeAuthToken = (l: () => void) => (tokenListeners.add(l), () => void tokenListeners.delete(l));
 
 /**
- * What the sync worker needs to reach the change feed: an absolute API base
- * and the bearer (null for local fixture mode or a same-origin cookie session).
- * Null when the desktop runtime is not connected.
+ * What the sync worker needs to reach the change feed: the API base and the
+ * bearer. Null when the desktop runtime is not connected.
  */
-export function syncCredentials(): { baseUrl: string; token: string | null; browserSession?: string } | null {
-  if (isDesktop()) {
-    const base = desktopBase();
-    return base ? { baseUrl: base, token: isHostedDesktop() ? authToken : desktopBearer() } : null;
-  }
-  const page = globalThis.location?.href ?? "http://localhost/";
-  return {
-    baseUrl: new URL(API_BASE || "/", page).href.replace(/\/$/, ""),
-    token: authToken,
-    ...(browserSession ? { browserSession } : {}),
-  };
+export function syncCredentials(): { baseUrl: string; token: string | null } | null {
+  const base = desktopBase();
+  return base ? { baseUrl: base, token: isHostedDesktop() ? authToken : desktopBearer() } : null;
 }
 
 /** Called when a signed-in request is refused as unauthenticated (expired or revoked session). */
 let onUnauthenticated: (() => void) | null = null;
-/** True while a cookie authenticates this tab. */
-let cookieSession = false;
-let browserSession: string | null = null;
-export function setCookieSession(on: boolean): void {
-  cookieSession = on;
-}
-export function setBrowserSession(binding: string | null): void {
-  browserSession = binding;
-  setCookieSession(binding !== null);
-}
-export function reportBrowserSessionExpired(): void {
-  if (browserSession) onUnauthenticated?.();
-}
 export function setUnauthenticatedHandler(handler: (() => void) | null): void {
   onUnauthenticated = handler;
 }
 
+/** Local: the launch bearer. Hosted: the user's ID token. Only ever for the API origin. */
 function authHeaders(url: string): Record<string, string> {
-  if (isDesktop() && !isHostedDesktop()) return desktopAuthFor(url);
-  const page = globalThis.location?.href;
-  const sameOrigin = new URL(url, page).origin === new URL(baseUrl() || "/", page).origin;
-  if (!sameOrigin) return {};
-  if (authToken) return { Authorization: `Bearer ${authToken}` };
-  return browserSession ? { "X-Metis-Session": browserSession } : {};
+  if (!isHostedDesktop()) return desktopAuthFor(url);
+  return authToken && new URL(url).origin === new URL(baseUrl()).origin ? { Authorization: `Bearer ${authToken}` } : {};
 }
 
 /** Server-supplied work packet for a project (the route has no response model in the contract). */
@@ -224,7 +195,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const text = await response.text();
   const parsed: unknown = text ? JSON.parse(text) : null;
   if (!response.ok) {
-    if (response.status === 401 && (authToken || cookieSession)) onUnauthenticated?.();
+    if (response.status === 401 && authToken) onUnauthenticated?.();
     throw new ApiError(response.status, (parsed ?? {
       code: ErrorCode.INTERNAL,
       message: `the server returned ${response.status}`,
@@ -284,9 +255,7 @@ export const api = {
     const url = upload.url.startsWith("http") ? upload.url : `${base}${upload.url}`;
     // Only our own API origin gets credentials and correlation; a presigned
     // external URL is signed for exactly the headers the server returned.
-    // `base` is "" behind the same-origin proxy, so resolve against the page.
-    const page = globalThis.location?.href;
-    const local = new URL(url, page).origin === new URL(base, page).origin;
+    const local = new URL(url).origin === new URL(base).origin;
     const own: Record<string, string> = local
       ? {
           "X-Correlation-Id": newCorrelationId(),
@@ -358,8 +327,6 @@ export const api = {
   listNotifications: () => request<NotificationPage>("/v1/notifications?limit=50"),
   markNotificationRead: (notificationId: string) =>
     request<Notification>(`/v1/notifications/${notificationId}/read`, { method: "POST" }),
-  registerPush: (body: { endpoint: string; p256dh: string; auth: string; user_agent?: string }) =>
-    request<{ id: string }>("/v1/push-subscriptions", { method: "POST", body }),
 
   // ----- settings ------------------------------------------------------- //
   preferences: () => request<Preferences>("/v1/preferences"),
@@ -426,7 +393,7 @@ export const api = {
       throw new OfflineError(cause);
     }
     if (!response.ok) {
-      if (response.status === 401 && (authToken || cookieSession)) onUnauthenticated?.();
+      if (response.status === 401 && authToken) onUnauthenticated?.();
       const text = await response.text();
       let body: ErrorBody;
       try {

@@ -7,7 +7,7 @@
  */
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { QueueStats } from "../contracts/metis";
-import { reportBrowserSessionExpired, subscribeAuthToken, syncCredentials } from "./api";
+import { subscribeAuthToken, syncCredentials } from "./api";
 import type { ChangeNotice, SyncStatus, WorkerIn, WorkerOut } from "./syncCore";
 
 /** `unsupported`: no Web Worker here, so nothing refreshes on its own. */
@@ -38,7 +38,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     worker.onmessage = (event: MessageEvent<WorkerOut>) => {
       const message = event.data;
       if (message.type === "status") {
-        if (message.status === "unauthorized") reportBrowserSessionExpired();
         setStatus(message.status);
         setRetryInMs(message.retryInMs);
         return;

@@ -1,13 +1,12 @@
 /**
  * Desktop recording gate: the full app's record affordance follows the
  * desktop shell's `desktop_status` (stack.recording_allowed, true only while
- * every service including the speech model is ready). Browser mode is never gated.
+ * every service including the speech model is ready).
  *
  * Wire shape (serde defaults, snake_case): { stack: { state, recording_allowed, services } | null, error }.
  * camelCase is accepted too. Anything unreadable means "not allowed".
  */
 import { useEffect, useState } from "react";
-import { isDesktop } from "./desktop";
 import { parseSnapshot } from "./hud";
 
 export type RecordingGate = { allowed: boolean; reason: string | null };
@@ -48,11 +47,10 @@ export async function readGate(invoke: Call = tauri): Promise<RecordingGate> {
 /** Asks Rust to run the microphone permission prompt (main window only). */
 export const prepareMic = (invoke: Call = tauri): Promise<unknown> => invoke("capture_prepare_mic").catch(() => undefined);
 
-/** Whether the hotkey microphone check has passed. Always true in browser mode. */
+/** Whether the hotkey microphone check has passed. */
 export function useMicReady(pollMs = 3000): boolean {
   const [ready, setReady] = useState(true);
   useEffect(() => {
-    if (!isDesktop()) return;
     let live = true;
     const tick = () =>
       void tauri("capture_state")
@@ -69,9 +67,8 @@ export function useMicReady(pollMs = 3000): boolean {
 }
 
 export function useRecordingGate(pollMs = 3000): RecordingGate {
-  const [gate, setGate] = useState<RecordingGate>(() => (isDesktop() ? { allowed: false, reason: null } : { allowed: true, reason: null }));
+  const [gate, setGate] = useState<RecordingGate>({ allowed: false, reason: null });
   useEffect(() => {
-    if (!isDesktop()) return;
     let live = true;
     const tick = () => void readGate().then((g) => live && setGate(g));
     tick();

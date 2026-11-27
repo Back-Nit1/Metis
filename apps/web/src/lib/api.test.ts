@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorCode } from "../contracts/metis";
-import { API_BASE, ApiError, DesktopUnavailableError, OfflineError, api, setAuthToken, setCookieSession, setUnauthenticatedHandler } from "./api";
+import { ApiError, DesktopUnavailableError, OfflineError, api, setAuthToken, setUnauthenticatedHandler } from "./api";
 import { connectDesktop, desktopBase, resetDesktopForTests } from "./desktop";
 import { Outbox } from "./outbox";
 import { resetClientData } from "./reset";
@@ -21,12 +21,21 @@ function mockFetch(responder: (call: Call) => Response | Promise<Response>) {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+const HOSTED = "https://metis.example.test";
+const asHosted = async () => {
+  vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
+  await connectDesktop({ invoke: async () => ({ apiBaseUrl: HOSTED, bearer: "", mode: "hosted" }) });
+};
+
 afterEach(() => {
   vi.unstubAllGlobals();
   setAuthToken(null);
+  resetDesktopForTests();
 });
 
 describe("api client", () => {
+  beforeEach(asHosted);
+
   it("sends a correlation id on every request and no credentials by default", async () => {
     const calls = mockFetch(() => json({ status: "ok" }));
     await api.health();
@@ -104,14 +113,6 @@ describe("desktop bridge", () => {
 
   afterEach(() => {
     resetDesktopForTests();
-  });
-
-  it("browser mode keeps API_BASE and VITE-style auth", async () => {
-    const calls = mockFetch(() => json({}));
-    setAuthToken("t");
-    await api.health();
-    expect(calls[0]?.url).toBe(`${API_BASE}/v1/health`);
-    expect((calls[0]?.init.headers as Record<string, string>)["Authorization"]).toBe("Bearer t");
   });
 
   it("desktop waits through not_ready, then authenticates API calls on loopback", async () => {
@@ -204,6 +205,8 @@ describe("desktop bridge", () => {
 });
 
 describe("exports, plans and sessions", () => {
+  beforeEach(asHosted);
+
   it("creates an export with an Idempotency-Key", async () => {
     const calls = mockFetch(() => json({ job_id: "job_1", state: "queued" }, 202));
     await api.createExport({}, "export:k1");
@@ -215,7 +218,7 @@ describe("exports, plans and sessions", () => {
     setAuthToken("tok-secret");
     const blob = await api.downloadExport("job_1");
     expect(await blob.text()).toBe("zip-bytes");
-    expect(calls[0]?.url).toBe(`${API_BASE}/v1/exports/job_1/download`);
+    expect(calls[0]?.url).toBe(`${HOSTED}/v1/exports/job_1/download`);
     expect(calls[0]?.url).not.toContain("tok-secret");
     expect((calls[0]?.init.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok-secret");
   });
@@ -242,21 +245,11 @@ describe("exports, plans and sessions", () => {
     expect(handler).toHaveBeenCalledTimes(1);
     setUnauthenticatedHandler(null);
   });
-
-  it("tells the session layer when a proxy-login (cookie) request is refused", async () => {
-    const handler = vi.fn();
-    setAuthToken(null);
-    setUnauthenticatedHandler(handler);
-    setCookieSession(true);
-    mockFetch(() => json({ code: ErrorCode.UNAUTHENTICATED, message: "sign in required" }, 401));
-    await api.today().catch(() => undefined);
-    expect(handler).toHaveBeenCalledTimes(1);
-    setCookieSession(false);
-    setUnauthenticatedHandler(null);
-  });
 });
 
 describe("sources, queue and change feed", () => {
+  beforeEach(asHosted);
+
   it("calls every corpus endpoint with the right method, path and headers", async () => {
     const calls = mockFetch((call) => (call.init.method === "DELETE" ? new Response(null, { status: 204 }) : json({})));
     await api.listConnectors();
@@ -270,7 +263,7 @@ describe("sources, queue and change feed", () => {
     await api.retryDeadLetter("e1", "k3");
     await api.changes(41, 25);
     await api.search({ query: "report" });
-    expect(calls.map((c) => `${c.init.method} ${c.url.replace(API_BASE, "")}`)).toEqual([
+    expect(calls.map((c) => `${c.init.method} ${c.url.replace(HOSTED, "")}`)).toEqual([
       "GET /v1/connectors",
       "GET /v1/connectors?cursor=next%20page",
       "POST /v1/connectors",
@@ -300,6 +293,6 @@ describe("sources, queue and change feed", () => {
   it("hands the sync worker an absolute base and the current bearer", async () => {
     const { syncCredentials } = await import("./api");
     setAuthToken("tok");
-    expect(syncCredentials()).toEqual({ baseUrl: new URL(API_BASE).href.replace(/\/$/, ""), token: "tok" });
+    expect(syncCredentials()).toEqual({ baseUrl: HOSTED, token: "tok" });
   });
 });

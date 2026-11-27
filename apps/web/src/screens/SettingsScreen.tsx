@@ -147,37 +147,26 @@ export function SettingsScreen() {
             Notifications
           </SectionHeading>
           <p className="text-sm text-ink">
-            Browser permission:{" "}
+            System notifications:{" "}
             <strong className="font-semibold">
               {notificationPermission === "unsupported" ? "not supported here" : notificationPermission}
             </strong>
           </p>
           {notificationPermission === "unsupported" && (
             <Notice tone="warn" className="mt-3">
-              This browser or device cannot receive push. Reminders still appear in the Alerts feed.
+              System notifications are not supported here. Reminders still appear in the Alerts feed.
             </Notice>
           )}
           <p className="mt-3 max-w-prose text-sm text-muted">
-            Web push needs browser and platform support, and delivery is never guaranteed. Every reminder also lands
-            in the in-app feed, which is the record we can vouch for.
+            Every reminder lands in the in-app Alerts feed, which is the record we can vouch for.
           </p>
-          {draft && (
-            <label className="mt-3 flex min-h-10 items-center gap-2 text-sm">
-              <input type="checkbox" checked={draft.webPush} onChange={(e) => setDraft({ ...draft, webPush: e.target.checked })} />
-              Also send reminders as web push (saved with Preferences)
-            </label>
-          )}
-          <Notice tone="info" className="mt-3">
-            Push registration is not available yet: the server does not publish the public key a browser needs to
-            subscribe, so this device is not registered and nothing is sent to it. In-app alerts still work.
-          </Notice>
           {(notificationPermission === "default" || notificationPermission === "denied") && (
             <Button className="mt-3" onClick={() => void session.requestNotificationPermission()}>
               Ask for permission
             </Button>
           )}
           {notificationPermission === "denied" && (
-            <p className="mt-2 text-xs text-muted">Blocked sites can only be re-enabled in the browser&apos;s site settings.</p>
+            <p className="mt-2 text-xs text-muted">Blocked notifications can only be re-enabled in System Settings.</p>
           )}
         </Card>
 

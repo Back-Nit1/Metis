@@ -464,7 +464,7 @@ export function CaptureScreen() {
           )}
           {recorder.state === "denied" && (
             <Notice tone="warn">
-              Microphone access was blocked. Allow it in the browser&apos;s site settings to record; typed capture works
+              Microphone access was blocked. Allow it in System Settings to record; typed capture works
               meanwhile.
             </Notice>
           )}

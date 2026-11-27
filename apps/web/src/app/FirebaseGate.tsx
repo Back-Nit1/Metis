@@ -1,21 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../components/Button";
 import { GoogleSignIn } from "../components/GoogleSignIn";
-import { api, setAuthToken, setBrowserSession, setUnauthenticatedHandler } from "../lib/api";
+import { api, setAuthToken, setUnauthenticatedHandler } from "../lib/api";
 import { AuthError, type FirebaseConfig, type Session } from "../lib/auth";
-import { browserSession, endBrowserSession } from "../lib/browserSession";
 import { setDesktopSession } from "../lib/desktop";
 import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase, signInFirebaseWithGoogle } from "../lib/firebaseAuth";
 import { Outbox } from "../lib/outbox";
 import { AuthContext } from "./AuthGate";
 
-export function FirebaseGate({ config, useBrowserCookie, children }: {
-  config: FirebaseConfig;
-  useBrowserCookie: boolean;
-  children: ReactNode;
-}) {
+export function FirebaseGate({ config, children }: { config: FirebaseConfig; children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  const [cookieBinding, setCookieBinding] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -28,8 +22,6 @@ export function FirebaseGate({ config, useBrowserCookie, children }: {
     generation.current++;
     setAuthToken(null);
     setSession(null);
-    setBrowserSession(null);
-    setCookieBinding(null);
     saveFirebase({ apiKey, projectId }, null);
     new Outbox().clear();
     setMessage(why);
@@ -38,14 +30,6 @@ export function FirebaseGate({ config, useBrowserCookie, children }: {
 
   const accept = useCallback(async (next: Session, epoch: number) => {
     if (epoch !== generation.current) return;
-    if (useBrowserCookie) {
-      const binding = await browserSession(next.accessToken);
-      if (!binding) throw new AuthError("The Metis server could not verify your sign-in.");
-      if (epoch !== generation.current) return;
-      setBrowserSession(binding);
-      setCookieBinding(binding);
-      return;
-    }
     setAuthToken(next.accessToken);
     // Ask the authoritative server to verify this token before mounting any data UI.
     try {
@@ -58,26 +42,15 @@ export function FirebaseGate({ config, useBrowserCookie, children }: {
     } catch (error) {
       if (epoch === generation.current) { setAuthToken(null); throw error; }
     }
-  }, [apiKey, projectId, useBrowserCookie]);
+  }, [apiKey, projectId]);
 
   useEffect(() => {
     const epoch = ++generation.current;
     let live = true;
-    setBrowserSession(null);
     setAuthToken(null);
     new Outbox().clear();
     void (async () => {
       try {
-        if (useBrowserCookie) {
-          // Clear any bearer storage left by a previous browser build.
-          saveFirebase({ apiKey, projectId }, null);
-          const binding = await browserSession();
-          if (epoch === generation.current) {
-            setBrowserSession(binding);
-            setCookieBinding(binding);
-          }
-          return;
-        }
         await setDesktopSession(null);
         const saved = loadFirebase({ apiKey, projectId });
         if (saved) await accept(await refreshFirebase({ apiKey, projectId }, saved), epoch);
@@ -85,12 +58,11 @@ export function FirebaseGate({ config, useBrowserCookie, children }: {
       finally { if (live) setChecking(false); }
     })();
     return () => { live = false; generation.current++; };
-  }, [apiKey, projectId, accept, drop, useBrowserCookie]);
+  }, [apiKey, projectId, accept, drop]);
 
   useEffect(() => {
-    if (!session && !cookieBinding) return;
+    if (!session) return;
     setUnauthenticatedHandler(() => drop("Your session ended. Sign in again."));
-    if (!session) return () => setUnauthenticatedHandler(null);
     const timer = window.setTimeout(() => {
       const epoch = generation.current;
       void refreshFirebase({ apiKey, projectId }, session).then((next) => accept(next, epoch)).catch(() => {
@@ -98,7 +70,7 @@ export function FirebaseGate({ config, useBrowserCookie, children }: {
       });
     }, Math.max(1000, session.expiresAt - Date.now() - 60_000));
     return () => { window.clearTimeout(timer); setUnauthenticatedHandler(null); };
-  }, [session, cookieBinding, apiKey, projectId, accept, drop]);
+  }, [session, apiKey, projectId, accept, drop]);
 
   async function authenticate(begin: () => Promise<Session>) {
     if (submitting.current) return;
@@ -115,19 +87,13 @@ export function FirebaseGate({ config, useBrowserCookie, children }: {
     }
   }
 
-  if (session || cookieBinding) {
-    function signOut() {
-      if (!cookieBinding) return drop(null);
-      void endBrowserSession(cookieBinding).then(() => drop(null)).catch(() =>
-        setMessage("Metis could not end your session. Try signing out again."),
-      );
-    }
-    return <AuthContext.Provider value={{ signedIn: true, signOut }}>
+  if (session) {
+    return <AuthContext.Provider value={{ signedIn: true, signOut: () => drop(null) }}>
       {message && <p role="alert" className="p-3 text-sm text-bad">{message}</p>}
       {children}
     </AuthContext.Provider>;
   }
-  const googleClientId = useBrowserCookie ? import.meta.env.VITE_METIS_GOOGLE_CLIENT_ID?.trim() : "";
+  const googleClientId = import.meta.env.VITE_METIS_GOOGLE_CLIENT_ID?.trim();
   return <main className="grid min-h-dvh place-items-center bg-canvas p-6 text-ink">
     <div className="w-full max-w-sm">
       <h1 className="text-center font-serif text-xl font-semibold">Metis</h1>

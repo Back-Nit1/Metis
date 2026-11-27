@@ -1,8 +1,8 @@
 """SQLite implementation of :class:`metis_contracts.ports.StateStore`.
 
-Deliberately mirrors the DynamoDB design so both adapters share semantics:
+Semantics:
 
-* ``(user_id, kind, id)`` stands in for ``PK = USER#<sub>`` / ``SK = <TYPE>#<id>``
+* ``(user_id, kind, id)`` is the key; every row belongs to one owner
 * a write is guarded by ``expected_revision`` and bumps ``revision`` by one
 * the entity row, its immutable revision-log entry, the outbox append and any
   planning-epoch bump all commit in one ``BEGIN IMMEDIATE`` transaction
@@ -509,10 +509,6 @@ class SqliteStateStore:
 
     def list_projects(self, user_id: str, *, cursor: str | None = None, limit: int = 100) -> Page[Any]:
         return self._page("project", user_id, "", [], cursor=cursor, limit=limit)
-
-    def list_push_subscriptions(self, user_id: str) -> list[Any]:
-        page = self._page("push_subscription", user_id, "", [], cursor=None, limit=50)
-        return list(page.items)
 
     def list_memories(
         self, user_id: str, *, project_id: str | None = None, cursor: str | None = None, limit: int = 100

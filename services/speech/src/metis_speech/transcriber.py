@@ -126,8 +126,8 @@ class FixtureTranscriber:
 class FasterWhisperTranscriber:
     """Self-hosted faster-whisper / CTranslate2 decoder.
 
-    The model is loaded from a directory baked into the container image (or a
-    controlled artifact cache) — never re-downloaded from the public internet
+    The model is loaded from a local model directory (or a controlled artifact
+    cache) — never re-downloaded from the public internet
     per transcription. One decode at a time per container; concurrency is
     capped by the pipeline, not by threads here.
     """
@@ -275,7 +275,7 @@ def build_transcriber() -> Any:
     """Honour ``METIS_SPEECH_ENGINE`` independently of ``METIS_MODE``.
 
     ``auto`` keeps the mode-based choice: fixture locally, the real decoder in
-    hybrid/cloud mode.
+    server mode.
     """
     cfg = settings()
     engine = cfg.desktop.speech_engine

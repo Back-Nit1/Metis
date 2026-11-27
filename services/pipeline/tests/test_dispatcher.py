@@ -112,7 +112,7 @@ def test_a_transient_failure_retries_then_dead_letters_at_the_cap(store, clock, 
     registry = HandlerRegistry()
 
     def flaky(env, ctx):
-        raise MetisError(ErrorCode.PROVIDER_UNAVAILABLE, "bedrock is down")
+        raise MetisError(ErrorCode.PROVIDER_UNAVAILABLE, "provider is down")
 
     registry.register(EventType.TASK_CHANGED)(flaky)
     enqueue(store, clock)

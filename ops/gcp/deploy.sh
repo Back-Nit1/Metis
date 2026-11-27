@@ -3,7 +3,7 @@
 #
 #   PROJECT=<gcp-project-id> ops/gcp/deploy.sh
 #
-# Caddy serves the browser build and routes /v1 requests to loopback services.
+# Caddy routes /v1 requests to loopback services; it serves no web app.
 # SSH stays IAP-only. Configure per-user server mode with configure-hosted.sh.
 #
 # Ships committed HEAD (git archive), not the working tree.
@@ -113,29 +113,18 @@ if [ -z "$(g compute instances describe "$VM" --zone "$ZONE" --format='value(net
   g compute instances add-access-config "$VM" --zone "$ZONE" --access-config-name external-nat --address "$IP"
 fi
 HOST="${IP//./-}.sslip.io"
-export VITE_METIS_API="" VITE_METIS_LOGIN=firebase
-METIS_GOOGLE_SIGN_IN=false
-if [ "${METIS_BROWSER_SESSIONS:-false}" = true ]; then
-  export VITE_METIS_LOGIN=firebase-cookie
-  if [ -n "${VITE_METIS_GOOGLE_CLIENT_ID:-}" ]; then
-    export VITE_METIS_GOOGLE_CLIENT_ID
-    METIS_GOOGLE_SIGN_IN=true
-  fi
-fi
 
 # Validate the edge inputs before copying or changing anything on the VM.
 HOST="$HOST" METIS_API_UPSTREAMS="$METIS_API_UPSTREAMS" METIS_CHANGES_UPSTREAMS="$METIS_CHANGES_UPSTREAMS" \
-  METIS_GOOGLE_SIGN_IN="$METIS_GOOGLE_SIGN_IN" \
   ops/gcp/render-caddyfile.sh >/dev/null
 
-# Build the web client from the same commit, in a clean export.
+# Ship the committed tree as a clean export.
 stage="$(mktemp -d)"; trap 'rm -rf "$stage" "$stage.tar.gz"' EXIT
 git archive "$BUILD_SHA" | tar -x -C "$stage"
-(cd "$stage" && pnpm install --frozen-lockfile --filter @metis/web... && pnpm --filter @metis/web build)
 # macOS otherwise serializes com.apple.* metadata into pax headers that GNU
 # tar on the VM cannot interpret, flooding deploy output with harmless noise.
 COPYFILE_DISABLE=1 tar -czf "$stage.tar.gz" -C "$stage" \
-  --exclude node_modules --exclude infra --exclude 'apps/desktop' .
+  --exclude node_modules --exclude 'apps/desktop' --exclude 'apps/web' .
 
 ssh_ready() { g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command true 2>/dev/null; }
 for _ in $(seq 20); do ssh_ready && break; sleep 6; done
@@ -143,13 +132,13 @@ for _ in $(seq 20); do ssh_ready && break; sleep 6; done
 g compute scp --zone "$ZONE" --tunnel-through-iap "$stage.tar.gz" "$VM:/tmp/metis.tar.gz"
 g compute scp --zone "$ZONE" --tunnel-through-iap "$stage/ops/gcp/vm-setup.sh" "$VM:/tmp/vm-setup.sh"
 rm -f "$stage.tar.gz"
-printf -v VM_SETUP_COMMAND 'sudo env HOST=%q METIS_API_UPSTREAMS=%q METIS_CHANGES_UPSTREAMS=%q METIS_BACKUP_BUCKET=%q METIS_BUILD=%q METIS_GOOGLE_SIGN_IN=%q bash /tmp/vm-setup.sh' \
-  "$HOST" "$METIS_API_UPSTREAMS" "$METIS_CHANGES_UPSTREAMS" "$METIS_BACKUP_BUCKET" "$BUILD_SHA" "$METIS_GOOGLE_SIGN_IN"
+printf -v VM_SETUP_COMMAND 'sudo env HOST=%q METIS_API_UPSTREAMS=%q METIS_CHANGES_UPSTREAMS=%q METIS_BACKUP_BUCKET=%q METIS_BUILD=%q bash /tmp/vm-setup.sh' \
+  "$HOST" "$METIS_API_UPSTREAMS" "$METIS_CHANGES_UPSTREAMS" "$METIS_BACKUP_BUCKET" "$BUILD_SHA"
 g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "$VM_SETUP_COMMAND"
 
 cat <<EOF
 
-Deployed: https://$HOST (web and API)
+Deployed: https://$HOST (API)
 Health: https://$HOST/v1/health
 See ops/gcp/hosted-desktop.md for sign-in and cutover.
 EOF

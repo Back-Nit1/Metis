@@ -17,10 +17,10 @@ launch time with an HTTPS origin. No server secret belongs in a desktop build.
    VM's memory budget alongside Whisper. The cutover script checks the models
    are installed; it does not download models or provision compute. Record the
    exact model names and verify a real extraction and embedding before rollout.
-3. Deploy from `main` with the public identity configuration below. Caddy
-   serves the web app at the GCP origin and sends `/v1/*` to the API. A build
-   without identity configuration shows a setup message. Back up and verify
-   the database/object store before changing authentication mode.
+3. Deploy from `main`. Caddy sends `/v1/*` to the API and serves nothing
+   else; the desktop ships its own UI. A desktop build without identity
+   configuration shows a setup message. Back up and verify the database/object
+   store before changing authentication mode.
 
 The existing VM was verified running during development; neither Identity
 Toolkit nor Firebase API appeared enabled in the project. These prerequisites
@@ -45,8 +45,8 @@ The separate embedding model serves semantic retrieval.
 
 The script writes `/etc/metis-hosted.env` and systemd drop-ins loaded after
 legacy environment files. It clears the shared desktop secret **in the running
-configuration**, enables production server mode, and allows the desktop/Vercel
-origins. It preserves the old secret file and database for controlled rollback.
+configuration**, enables production server mode, and allows only the desktop
+webview origins. It preserves the old secret file and database for controlled rollback.
 The overrides survive normal redeployment. Existing single-user rows remain
 under their original owner; signing in with Firebase does not reassign them.
 
@@ -54,36 +54,19 @@ To roll back, remove only the `zz-hosted.conf` files installed by this script,
 reload systemd, and restart the five listed services. This restores the old
 single-user configuration, not a multi-user fallback inside the new client.
 
-## Browser deployment and native build
+## Deploy and native build
 
 ```bash
+PROJECT=metis-dev-856337 bash ops/gcp/deploy.sh
 export VITE_METIS_FIREBASE_PROJECT_ID=metis-dev-856337
 export VITE_METIS_FIREBASE_API_KEY='<public-web-api-key>'
-PROJECT=metis-dev-856337 bash ops/gcp/deploy.sh
 export VITE_METIS_API=https://34-30-254-78.sslip.io
 pnpm --filter @metis/desktop tauri build
 ```
 
-After cutover, direct browser users to the GCP URL. The old Vercel shared-key
-proxy loses access when the server switches to per-user authentication.
+Desktop clients send Identity Platform bearer tokens to the API.
 
-## Browser sessions and Google sign-in
-
-Build with `METIS_BROWSER_SESSIONS=true` on the same GCP origin as the API.
-The browser exchanges a recent Identity Platform sign-in for a 12-hour
-HttpOnly cookie. The VM stores hashed session IDs alongside the SQLite data
-directory in `browser-sessions.db`. A browser restores its session on reload
-and signing out revokes that session on the VM. Desktop clients continue
-sending Identity Platform bearer tokens.
-
-To show the Google button, configure a Google OAuth web client with the exact
-GCP HTTPS origin, add the domain to Identity Platform's authorized domains,
-enable its Google provider, and export the public
-`VITE_METIS_GOOGLE_CLIENT_ID` for the GCP web build. The browser sends the
-Google credential to Identity Platform for exchange. A provider collision
-can require the user to sign in with their original method.
-Use an owned, verified domain for the public Google OAuth rollout.
-See [Google OAuth production requirements](https://developers.google.com/identity/protocols/oauth2/production-readiness/policy-compliance).
+## Accounts
 
 Existing invitees can use **Set or reset password** on the sign-in screen.
 Whether Google sign-in can provision a brand-new account is controlled by
@@ -91,12 +74,6 @@ Identity Platform's project signup setting. Leave that setting disabled for
 the pilot. Review enrollment separately before opening self-service signup.
 Google and email/password sessions both authorize the Identity Platform UID.
 Provider configuration gives no account ownership over the legacy notebook.
-
-Verify a real Google sign-in and an email/password sign-in against the same
-test origin before enabling the browser build for users. Test page reload,
-sign-out, protected writes, and a second tab left open while another account
-signs in. Disabling a user in Identity Platform prevents new sign-ins. Existing
-Metis browser sessions expire independently within 12 hours.
 
 ## Verification and existing data
 

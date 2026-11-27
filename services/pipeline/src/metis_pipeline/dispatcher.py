@@ -71,8 +71,6 @@ class DispatchContext:
     notification_transports: dict[str, NotificationTransport] = field(default_factory=dict)
     memory_store: MemoryStore | None = None
     embedder: Embedder | None = None
-    #: Set in cloud mode only; None means transcription runs inline (fixture).
-    asr_launcher: Any | None = None
     worker_id: str = field(default_factory=lambda: f"{socket.gethostname()}:{int(time.time())}")
 
 

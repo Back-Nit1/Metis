@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Render the public Caddy edge configuration.
+# Render the public Caddy edge configuration: /v1/* (including /v1/health)
+# goes to the API; every other path is a 404.
 #
 # METIS_API_UPSTREAMS accepts a comma- or whitespace-separated list of
 # host:port endpoints. Keep it to private/internal endpoints; Caddy is the
@@ -88,34 +89,11 @@ CADDY
 proxy "${changes_upstreams[@]}"
 printf '\t}\n\t@api path /v1 /v1/*\n\thandle @api {\n'
 proxy "${upstreams[@]}"
-script_sources="'self'"
-style_sources="'self' 'unsafe-inline' https://fonts.googleapis.com"
-connect_sources="'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com"
-frame_sources="'none'"
-referrer_policy=no-referrer
-opener_header=""
-if [ "${METIS_GOOGLE_SIGN_IN:-false}" = true ]; then
-    script_sources="$script_sources https://accounts.google.com/gsi/client"
-    style_sources="$style_sources https://accounts.google.com/gsi/style"
-    connect_sources="$connect_sources https://accounts.google.com/gsi/"
-    frame_sources="https://accounts.google.com/gsi/"
-    referrer_policy=strict-origin-when-cross-origin
-    opener_header="Cross-Origin-Opener-Policy same-origin-allow-popups"
-fi
-cat <<CADDY
+# API only: the desktop app ships its own UI, so nothing else is served.
+cat <<'CADDY'
     }
     handle {
-        root * /opt/metis/apps/web/dist
-        header {
-            Content-Security-Policy "default-src 'self'; script-src $script_sources; style-src $style_sources; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src $connect_sources; frame-src $frame_sources; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
-            X-Content-Type-Options nosniff
-            Referrer-Policy $referrer_policy
-            $opener_header
-            Permissions-Policy "microphone=(self), camera=(), geolocation=()"
-        }
-        @revalidate path / /index.html /sw.js
-        header @revalidate Cache-Control "no-cache"
-        file_server
+        respond 404
     }
 }
 CADDY

@@ -4,8 +4,7 @@ Self-hosted ASR around **pretrained open-source Whisper weights**
 (faster-whisper / CTranslate2, CPU, INT8). Metis owns the capture UX, the upload
 API, validation, the inference container, lifecycle, the correction flow,
 deployment and the metrics. No OpenAI, Deepgram, AssemblyAI, ElevenLabs or
-Amazon Transcribe key is required; AWS IAM roles are still needed for the AWS
-infrastructure itself.
+other speech-provider key is required.
 
 This is **self-hosted inference, not training**. Training an ASR model from
 scratch is out of scope: it would need a labelled speech corpus, substantial
@@ -67,15 +66,15 @@ or a reminder.
 
 ## Exit codes
 
-| Code | Meaning | State machine behaviour |
+| Code | Meaning | Caller behaviour |
 | --- | --- | --- |
 | 0 | result persisted | success |
 | 1 | retryable fault | retry within the attempt budget |
 | 2 | malformed job input | do not retry |
 | 3 | permanent rejection (unsupported media, too large, forbidden key) | do not retry; surface an actionable error |
 
-A successful `RunTask` is **not** a successful transcription. The caller reads
-the persisted result.
+A started job is **not** a successful transcription. The caller reads the
+persisted result.
 
 ## Model artifacts
 
@@ -89,8 +88,8 @@ docker build -t metis-speech:dev \
 ```
 
 Pin `MODEL_REVISION` and `MODEL_SHA256`; the build prints the digest it saw and
-fails on a mismatch. Mirror the artifacts into a private location (ECR image or
-an S3 artifact bucket) for repeatable deployments. `small.en` and `base.en` are
+fails on a mismatch. Mirror the artifacts into a private location for
+repeatable deployments. `small.en` and `base.en` are
 English-only — a multilingual checkpoint is required for other languages, and
 `small.en` is **provisional** until the project's own evaluation passes.
 
@@ -132,8 +131,5 @@ universal accuracy claim.
 ## Cost reality
 
 An open-source decoder removes per-minute speech-provider charges. It does not
-make cloud inference free: billed Fargate runtime starts at image pull and has a
-one-minute minimum, and ECR storage, object storage/requests, orchestration
-transitions, logs and networking all bill separately. Measure cold and warm runs
-separately and price them against the region's rate card — see
-`ops/cost-worksheet.md`.
+make hosted inference free: on the GCP VM it costs CPU time on the shared
+instance. Measure cold and warm runs separately.

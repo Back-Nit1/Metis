@@ -5,7 +5,6 @@
 **/.mypy_cache
 **/node_modules
 **/.venv
-infra/cdk.out
 apps/web/dist
 .git
 .metis

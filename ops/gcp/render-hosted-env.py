@@ -4,7 +4,6 @@
 import os
 import re
 import sys
-from urllib.parse import urlsplit
 
 
 def render(env: dict[str, str]) -> str:
@@ -29,26 +28,8 @@ def render(env: dict[str, str]) -> str:
             raise ValueError(f"set {key} to an already installed server model")
         values[key] = value
     values["METIS_FLOW_MODEL_ENDPOINT"] = values["METIS_LOCAL_LLM_ENDPOINT"]
-    web = env.get("METIS_WEB_ORIGIN", "https://metis-delta.vercel.app")
-    parsed = urlsplit(web)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        raise ValueError("METIS_WEB_ORIGIN must be an HTTPS origin")
-    if (
-        parsed.path not in ("", "/")
-        or parsed.query
-        or parsed.fragment
-        or "," in web
-        or any(c.isspace() for c in web)
-    ):
-        raise ValueError("METIS_WEB_ORIGIN must be an HTTPS origin without a path")
-    values["METIS_CORS_ORIGINS"] = ",".join(
-        [
-            web.rstrip("/"),
-            "tauri://localhost",
-            "http://tauri.localhost",
-            "https://tauri.localhost",
-        ]
-    )
+    # Desktop webview origins only; no browser app is hosted.
+    values["METIS_CORS_ORIGINS"] = "tauri://localhost,http://tauri.localhost,https://tauri.localhost"
     return "".join(f"{key}={value}\n" for key, value in values.items())
 
 

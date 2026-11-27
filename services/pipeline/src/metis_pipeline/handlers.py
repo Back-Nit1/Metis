@@ -31,7 +31,7 @@ from .dispatcher import DispatchContext, HandlerRegistry, is_fresh, outbox_event
 from .export import handle_export_requested
 from .extraction import ExtractionService
 from .timeref import to_instant
-from .transcription import launch_transcription, transcribe_inline
+from .transcription import transcribe_inline
 
 log = logging.getLogger("metis.pipeline.handlers")
 
@@ -45,16 +45,8 @@ registry = HandlerRegistry()
 
 @registry.register(EventType.CAPTURE_COMPLETED)
 def handle_capture_completed(envelope: EventEnvelope, context: DispatchContext) -> None:
-    """Transcribe an uploaded recording, then finalize exactly one text revision.
-
-    Local/fixture mode decodes inline. With an ``asr_launcher`` (cloud) this
-    only launches bounded external work; the transcript is finalized later by
-    ``finalize_transcription`` once the persisted worker result is verified.
-    """
-    if context.asr_launcher is None:
-        transcribe_inline(envelope, context)
-    else:
-        launch_transcription(envelope, context)
+    """Transcribe an uploaded recording, then finalize exactly one text revision."""
+    transcribe_inline(envelope, context)
 
 
 # --------------------------------------------------------------------------- #

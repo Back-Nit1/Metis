@@ -1,8 +1,8 @@
 # GCP operations
 
 Metis currently runs as a single `e2-medium` Compute Engine VM in
-`us-central1-a`. Caddy serves the browser app and proxies API traffic over
-loopback. Caddy can balance across additional private
+`us-central1-a`. Caddy proxies `/v1/*` API traffic over loopback and serves
+nothing else (no web app is hosted). Caddy can balance across additional private
 API nodes through `METIS_API_UPSTREAMS`, but one VM is not high availability.
 The ordinary API process admits at most 200 concurrent connections or tasks and keeps a
 200-connection socket backlog. This is independent of the exact rolling limit

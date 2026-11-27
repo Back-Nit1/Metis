@@ -3,8 +3,8 @@ name = "metis-pipeline"
 version = "0.1.0"
 description = "Metis ingestion pipeline: jobs, extraction, transactional outbox dispatch"
 requires-python = ">=3.12"
-# boto3: StepFunctionsLauncher. metis-speech: finalize reads its result_key.
-dependencies = ["metis-contracts", "metis-state", "metis-speech", "boto3>=1.35"]
+# metis-speech: the inline transcriber.
+dependencies = ["metis-contracts", "metis-state", "metis-speech"]
 
 [build-system]
 requires = ["hatchling"]

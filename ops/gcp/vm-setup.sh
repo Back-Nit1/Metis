@@ -62,7 +62,7 @@ METIS_DESKTOP_IDENTITY_PATH=$DATA/install_id
 METIS_ALLOWED_HOSTS=$HOST
 METIS_SQLITE_PATH=$DATA/metis.sqlite
 METIS_LOCAL_OBJECTS_DIR=$DATA/objects
-METIS_CORS_ORIGINS=https://metis-delta.vercel.app
+METIS_CORS_ORIGINS=tauri://localhost,http://tauri.localhost,https://tauri.localhost
 METIS_SPEECH_ENGINE=remote
 METIS_SPEECH_ENDPOINT=http://127.0.0.1:8787
 METIS_SPEECH_CPU_THREADS=2
@@ -157,7 +157,6 @@ install -m 0644 "$APP/ops/gcp/systemd/metis-queue-observer.timer" \
 HOST="$HOST" \
   METIS_API_UPSTREAMS="${METIS_API_UPSTREAMS:-127.0.0.1:8000}" \
   METIS_CHANGES_UPSTREAMS="${METIS_CHANGES_UPSTREAMS:-127.0.0.1:8001}" \
-  METIS_GOOGLE_SIGN_IN="${METIS_GOOGLE_SIGN_IN:-false}" \
   "$APP/ops/gcp/render-caddyfile.sh" >/etc/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl enable -q caddy

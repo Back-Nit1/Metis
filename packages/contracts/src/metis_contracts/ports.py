@@ -36,7 +36,6 @@ from .entities import (
     Plan,
     Preferences,
     Project,
-    PushSubscription,
     Reminder,
     SourceArtifact,
     Task,
@@ -124,8 +123,6 @@ class StateStore(Protocol):
     def list_projects(
         self, user_id: str, *, cursor: str | None = None, limit: int = 100
     ) -> Page[Project]: ...
-
-    def list_push_subscriptions(self, user_id: str) -> list[PushSubscription]: ...
 
     def list_memories(
         self, user_id: str, *, project_id: str | None = None, cursor: str | None = None, limit: int = 100

@@ -144,7 +144,7 @@ def search(body: SearchRequest, ctx: Context) -> SearchResponse:
     An unavailable index degrades visibly rather than failing: the response
     says which sources were available instead of inventing an answer.
     """
-    # Each search embeds the query (a paid call in cloud mode) outside the
+    # Each search embeds the query (possibly a paid call) outside the
     # reserve/settle gate, so it gets its own small ceiling.
     ctx.throttle("search", per_minute=max(1, settings().limits.api_rate_per_minute // 6))
     found = ctx.adapters.retrieval.search_decomposed(

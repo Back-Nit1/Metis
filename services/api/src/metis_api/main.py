@@ -1,8 +1,6 @@
 """FastAPI application factory.
 
-The same app object serves uvicorn locally and Lambda in the cloud (through the
-pinned ASGI adapter in ``lambda_entry.py``), so there is no second, partially
-implemented HTTP path to keep in sync.
+One app object, served by uvicorn in both local and server mode.
 """
 
 from __future__ import annotations

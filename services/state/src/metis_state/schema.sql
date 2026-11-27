@@ -1,7 +1,5 @@
--- Local authoritative state. Shaped deliberately like the DynamoDB design:
--- (user_id, kind, id) mirrors PK = USER#<sub> / SK = <TYPE>#<id>, so the same
--- access patterns, revision checks and transaction boundaries apply to both
--- adapters and neither needs a table scan to find one user's rows.
+-- Authoritative state (local and server mode). Rows are keyed by
+-- (user_id, kind, id) so one user's rows never need a table scan.
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

@@ -1,6 +1,6 @@
 """Container entrypoint for one transcription job, then exit.
 
-Invoked as a finite ECS Fargate task (or locally with `--job-file`). The job
+Invoked as a finite container job (or locally with `--job-file`). The job
 input arrives as JSON in ``METIS_JOB_INPUT`` or a file path, matching
 ``metis_contracts.TranscriptionJobInput``.
 
@@ -9,9 +9,8 @@ owner's prefix and that ``source_version`` still matches the current recording.
 A late result for a canceled or edited capture is discarded rather than
 resurrecting it. No filename from the payload ever reaches a shell.
 
-The worker persists its own result and exits non-zero on failure. A successful
-``RunTask`` is not a successful transcription: the caller checks the persisted
-result, not the launch.
+The worker persists its own result and exits non-zero on failure. A started
+job is not a successful transcription: the caller checks the persisted result.
 """
 
 from __future__ import annotations
@@ -154,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(failure.model_dump_json(), file=sys.stderr)
         # Exit code distinguishes a permanent rejection from a retryable fault,
-        # so the state machine does not retry an unsupported file forever.
+        # so the caller does not retry an unsupported file forever.
         return (
             3
             if exc.code in (ErrorCode.UNSUPPORTED_MEDIA, ErrorCode.UPLOAD_TOO_LARGE, ErrorCode.FORBIDDEN)

@@ -44,9 +44,6 @@ def test_flow_can_use_a_different_chat_model():
         ("METIS_LOCAL_LLM_MODEL", "model\nMETIS_ALLOW_FIXTURE_IDENTITY=true"),
         ("METIS_LOCAL_EMBED_MODEL", ""),
         ("METIS_FLOW_MODEL", "bad\nmodel"),
-        ("METIS_WEB_ORIGIN", "https://user:password@example.test"),
-        ("METIS_WEB_ORIGIN", "http://example.test"),
-        ("METIS_WEB_ORIGIN", "https://example.test/path"),
     ],
 )
 def test_bad_hosted_config_refused(key, value):

@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorCode, StatusUpdateAction, type Project } from "../contracts/metis";
 import { ApiError, api } from "./api";
+import { connectDesktop, resetDesktopForTests } from "./desktop";
 import { mutationError } from "./mutationError";
 import { formFromProject, projectPatch } from "./projectEdit";
 import { openTargetChoices } from "./statusUpdate";
@@ -12,7 +13,8 @@ function mock(res: Response) {
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => (calls.push({ url, init }), res.clone())));
   return calls;
 }
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => connectDesktop({ invoke: async () => ({ apiBaseUrl: "https://metis.example.test", bearer: "", mode: "hosted" }) }));
+afterEach(() => (vi.unstubAllGlobals(), resetDesktopForTests()));
 
 const project = { id: "p1", user_id: "u", created_at: "", updated_at: "", title: "Cerno", revision: 3, aliases: ["a"], objective: "Ship" } as Project;
 

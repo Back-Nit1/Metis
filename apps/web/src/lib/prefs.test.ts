@@ -11,10 +11,9 @@ const prefs = {
 describe("preferences patch", () => {
   it("is empty when nothing changed", () => expect(buildPatch(prefs, toDraft(prefs))).toEqual({}));
   it("sends only what changed", () => {
-    const d = { ...toDraft(prefs), maxFocus: "5", webPush: true, dailyEnabled: true, dailyBudgetUsd: "1.5" };
+    const d = { ...toDraft(prefs), maxFocus: "5", dailyEnabled: true, dailyBudgetUsd: "1.5" };
     expect(buildPatch(prefs, d)).toEqual({
       max_focus_tasks: 5,
-      channels: [DeliveryChannel.IN_APP, DeliveryChannel.WEB_PUSH],
       daily_planning_enabled: true,
       budgets: { daily_micro_usd: 1_500_000 },
     });

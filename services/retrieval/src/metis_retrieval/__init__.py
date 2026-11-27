@@ -2,7 +2,6 @@
 
 from .corpus_store import CorpusStore
 from .embedder import (
-    BedrockEmbedder,
     FixtureEmbedder,
     LocalEmbedder,
     build_embedder,
@@ -23,7 +22,6 @@ from .ingestion import (
 )
 from .memory_store import (
     Capabilities,
-    S3VectorsMemoryStore,
     SqliteMemoryStore,
     build_memory_store,
 )
@@ -34,7 +32,6 @@ from .service import EvidenceBudget, ObligationScan, RetrievalService
 __all__ = [
     "KIND_MAP",
     "MEANING_CARRIERS",
-    "BedrockEmbedder",
     "Capabilities",
     "CorpusStore",
     "EvidenceBudget",
@@ -44,7 +41,6 @@ __all__ = [
     "LocalEmbedder",
     "ObligationScan",
     "RetrievalService",
-    "S3VectorsMemoryStore",
     "SemanticRetriever",
     "SqliteMemoryStore",
     "build_embedder",

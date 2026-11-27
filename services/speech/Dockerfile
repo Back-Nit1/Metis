@@ -6,7 +6,7 @@
 # Model artifacts are downloaded at BUILD time, pinned by revision and
 # checksum, and baked into the image. Nothing is fetched from the public
 # internet per transcription, so the running task needs no egress path for
-# model files (and therefore no NAT gateway purely to fetch weights).
+# model files.
 #
 #   docker build -t metis-speech:dev \
 #     --build-arg MODEL_ID=small.en \
@@ -75,13 +75,12 @@ RUN pip install --no-cache-dir \
       "ctranslate2==4.4.0" \
       "av==12.3.0" \
       "numpy<2" \
-      "boto3>=1.35,<2" \
       "pydantic>=2.9,<3" \
  && pip install --no-cache-dir --no-deps \
       /app/packages/contracts /app/services/state /app/services/speech
 
 # One inference job per container; CPU threads are bounded by the task's vCPUs.
-ENV METIS_MODE=cloud \
+ENV METIS_SPEECH_ENGINE=faster_whisper \
     METIS_SPEECH_MODEL_DIR=/opt/models \
     METIS_SPEECH_MODEL_ID=${MODEL_ID} \
     METIS_SPEECH_ARTIFACT_REVISION=${MODEL_REVISION} \

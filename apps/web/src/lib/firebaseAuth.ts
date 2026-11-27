@@ -29,6 +29,21 @@ export async function signInFirebase(config: FirebaseConfig, email: string, pass
   return session(data.idToken, data.refreshToken, data.expiresIn);
 }
 
+export async function signInFirebaseWithGoogle(config: FirebaseConfig, credential: string): Promise<Session> {
+  const data = await exchange(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=${encodeURIComponent(config.apiKey)}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      postBody: new URLSearchParams({ id_token: credential, providerId: "google.com" }).toString(),
+      requestUri: window.location.origin,
+      returnSecureToken: true,
+    }),
+  });
+  if (data.needConfirmation || !data.idToken) {
+    throw new AuthError("Google sign-in could not be completed. Use your existing Metis password if you have one.");
+  }
+  return session(data.idToken, data.refreshToken, data.expiresIn);
+}
+
 export async function refreshFirebase(config: FirebaseConfig, previous: Session): Promise<Session> {
   if (!previous.refreshToken) throw new AuthError("Your session expired. Sign in again.");
   const data = await exchange(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(config.apiKey)}`, {

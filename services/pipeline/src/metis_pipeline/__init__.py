@@ -13,7 +13,6 @@ from .dispatcher import (
 from .extraction import EXTRACTOR_VERSION, ExtractionOutcome, ExtractionService, extraction_schema
 from .inference import (
     SYSTEM_GUARDRAIL,
-    BedrockInferenceClient,
     FixtureInferenceClient,
     build_inference_client,
 )
@@ -22,7 +21,6 @@ from .timeref import LocalResolution, end_of_local_day, is_overdue, resolve_phra
 __all__ = [
     "EXTRACTOR_VERSION",
     "SYSTEM_GUARDRAIL",
-    "BedrockInferenceClient",
     "DispatchContext",
     "DispatchResult",
     "ExtractionOutcome",

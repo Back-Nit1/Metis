@@ -428,26 +428,3 @@ def test_list_jobs_filters_by_state_and_owner(store):
     assert [j.id for j in store.list_jobs(USER, state=JobState.QUEUED).items] == ["job_1"]
     assert [j.id for j in store.list_jobs(USER, state=JobState.FAILED).items] == ["job_2"]
     assert store.list_jobs("user_b", state=JobState.FAILED).items == []
-
-
-def test_dynamo_list_jobs_filters_by_state():
-    from metis_contracts import Page
-    from metis_state.dynamo_store import DynamoStateStore
-
-    jobs = [
-        Job(
-            id=i,
-            user_id=USER,
-            created_at=T0,
-            updated_at=T0,
-            job_type="t",
-            state=s,
-            correlation_id="c",
-            idempotency_key=i,
-        )
-        for i, s in (("job_1", JobState.QUEUED), ("job_2", JobState.FAILED))
-    ]
-    s = object.__new__(DynamoStateStore)
-    s._query_kind = lambda *a, **k: (jobs, None, True)  # type: ignore[method-assign]
-    page = s.list_jobs(USER, state=JobState.FAILED)
-    assert isinstance(page, Page) and [j.id for j in page.items] == ["job_2"]

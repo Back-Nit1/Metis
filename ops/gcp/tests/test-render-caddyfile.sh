@@ -11,9 +11,11 @@ grep -Fq 'reverse_proxy 127.0.0.1:8000 {' "$tmp/default.caddy"
 grep -Fq 'reverse_proxy 127.0.0.1:8001 {' "$tmp/default.caddy"
 grep -Fq 'handle /v1/changes {' "$tmp/default.caddy"
 grep -Fq '@api path /v1 /v1/*' "$tmp/default.caddy"
-grep -Fq 'root * /opt/metis/apps/web/dist' "$tmp/default.caddy"
-grep -Fq 'file_server' "$tmp/default.caddy"
-grep -Fq "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com" "$tmp/default.caddy"
+grep -Fq 'respond 404' "$tmp/default.caddy"
+if grep -Eq 'file_server|root \*|Content-Security-Policy' "$tmp/default.caddy"; then
+  echo 'the edge must not serve web app files' >&2
+  exit 1
+fi
 grep -Fq 'log {' "$tmp/default.caddy"
 grep -Fq 'duration_format seconds' "$tmp/default.caddy"
 if grep -Eq 'fail_duration|health_uri|max_fails|unhealthy_status' "$tmp/default.caddy"; then

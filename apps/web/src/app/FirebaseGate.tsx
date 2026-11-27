@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../components/Button";
-import { api, setAuthToken, setCookieSession, setUnauthenticatedHandler } from "../lib/api";
+import { GoogleSignIn } from "../components/GoogleSignIn";
+import { api, setAuthToken, setUnauthenticatedHandler } from "../lib/api";
 import { AuthError, type FirebaseConfig, type Session } from "../lib/auth";
 import { setDesktopSession } from "../lib/desktop";
-import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase } from "../lib/firebaseAuth";
+import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase, signInFirebaseWithGoogle } from "../lib/firebaseAuth";
 import { Outbox } from "../lib/outbox";
 import { AuthContext } from "./AuthGate";
 
@@ -14,6 +15,7 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
   const [message, setMessage] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
   const generation = useRef(0);
+  const submitting = useRef(false);
   // Stable primitive dependencies keep config object creation from restarting auth.
   const { apiKey, projectId } = config;
   const drop = useCallback((why: string | null) => {
@@ -45,7 +47,6 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
   useEffect(() => {
     const epoch = ++generation.current;
     let live = true;
-    setCookieSession(false);
     setAuthToken(null);
     new Outbox().clear();
     void (async () => {
@@ -71,20 +72,35 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
     return () => { window.clearTimeout(timer); setUnauthenticatedHandler(null); };
   }, [session, apiKey, projectId, accept, drop]);
 
-  if (session) return <AuthContext.Provider value={{ signedIn: true, signOut: () => drop(null) }}>{children}</AuthContext.Provider>;
+  async function authenticate(begin: () => Promise<Session>) {
+    if (submitting.current) return;
+    submitting.current = true;
+    const epoch = ++generation.current;
+    setBusy(true); setMessage(null); setResetSent(false);
+    try {
+      await accept(await begin(), epoch);
+    } catch (error) {
+      if (epoch === generation.current) drop(error instanceof AuthError ? error.message : "The Metis server could not verify your session.");
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  }
+
+  if (session) {
+    return <AuthContext.Provider value={{ signedIn: true, signOut: () => drop(null) }}>
+      {message && <p role="alert" className="p-3 text-sm text-bad">{message}</p>}
+      {children}
+    </AuthContext.Provider>;
+  }
+  const googleClientId = import.meta.env.VITE_METIS_GOOGLE_CLIENT_ID?.trim();
   return <main className="grid min-h-dvh place-items-center bg-canvas p-6 text-ink">
     <div className="w-full max-w-sm">
       <h1 className="text-center font-serif text-xl font-semibold">Metis</h1>
       {checking ? <p role="status" className="mt-3 text-center text-sm text-muted">Checking your session…</p> : <form className="mt-3" onSubmit={async (event) => {
         event.preventDefault();
         const fields = new FormData(event.currentTarget);
-        const epoch = ++generation.current;
-        setBusy(true); setMessage(null); setResetSent(false);
-        try {
-          await accept(await signInFirebase({ apiKey, projectId }, String(fields.get("email")), String(fields.get("password"))), epoch);
-        } catch (error) {
-          if (epoch === generation.current) drop(error instanceof AuthError ? error.message : "The Metis server could not verify your session.");
-        } finally { setBusy(false); }
+        await authenticate(() => signInFirebase(config, String(fields.get("email")), String(fields.get("password"))));
       }}>
         <p className="text-center text-sm text-muted">Sign in to your Metis account. Your notes and recordings are stored on the server.</p>
         <label className="mt-4 block text-sm" htmlFor="firebase-email">Email</label>
@@ -104,6 +120,8 @@ export function FirebaseGate({ config, children }: { config: FirebaseConfig; chi
           } finally { setBusy(false); }
         }}>Set or reset password</button>
       </form>}
+      {!checking && googleClientId && <GoogleSignIn clientId={googleClientId} disabled={busy}
+        onCredential={(credential) => { void authenticate(() => signInFirebaseWithGoogle(config, credential)); }} />}
       {resetSent && <p role="status" className="mt-3 text-sm text-muted">If a Metis account exists for that email, you’ll receive a password reset link.</p>}
       {message && <p role="alert" className="mt-3 text-sm text-bad">{message}</p>}
     </div>

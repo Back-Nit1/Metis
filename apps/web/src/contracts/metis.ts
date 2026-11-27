@@ -278,15 +278,6 @@ export interface AcceptPlanRequest {
   expected_planning_epoch: number;
 }
 
-/** What the speech state machine reports when the ASR task ends, however it */
-export interface AsrTaskOutcome {
-  user_id: string;
-  job_id: string;
-  status: "succeeded" | "failed" | "timed_out" | "aborted";
-  failure?: string | null;
-  error_message?: string | null;
-}
-
 export interface AttachCaptureProjectRequest {
   expected_revision: number;
   project_id: string;
@@ -1143,13 +1134,6 @@ export interface Record {
   revision?: number;
   created_at: string;
   updated_at: string;
-}
-
-export interface RegisterPushRequest {
-  endpoint: string;
-  p256dh: string;
-  auth: string;
-  user_agent?: string | null;
 }
 
 export interface Reminder {

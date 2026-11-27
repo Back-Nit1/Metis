@@ -41,12 +41,9 @@ def test_remote_ok_and_unknown_engine(monkeypatch):
 
 def test_prod_refuses_desktop_secret(monkeypatch):
     monkeypatch.setenv("METIS_ENV", "prod")
-    monkeypatch.setenv("METIS_MODE", "cloud")
+    monkeypatch.setenv("METIS_MODE", "server")
     monkeypatch.setenv("METIS_ALLOW_FIXTURE_IDENTITY", "false")
-    monkeypatch.setenv("METIS_TABLE_NAME", "t")
-    monkeypatch.setenv("METIS_SOURCES_BUCKET", "b")
-    monkeypatch.setenv("METIS_COGNITO_USER_POOL_ID", "p")
-    monkeypatch.setenv("METIS_COGNITO_CLIENT_ID", "c")
+    monkeypatch.setenv("METIS_FIREBASE_PROJECT_ID", "p")
     monkeypatch.setenv("METIS_DESKTOP_AUTH_SECRET", SECRET)
-    with pytest.raises(ValueError, match="DESKTOP"):
+    with pytest.raises(ValueError, match="not fixture or desktop identity"):
         Settings()

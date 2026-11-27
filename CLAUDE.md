@@ -25,7 +25,7 @@ your task needs** — do not load the whole spec into every turn.
    changes via handoff; never fork a second schema.
 2. **Ownership comes from the server.** `user_id` is derived from the
    authenticated subject. Never trust a request body or queue payload for
-   ownership. Reject keys outside the owner's S3 prefix.
+   ownership. Reject keys outside the owner's object prefix.
 3. **Honest states.** "Reminder scheduled" requires a confirmed scheduler sync.
    Use `pending_schedule` / `schedule_failed` otherwise. Uploaded ≠ transcribed.
    A fixture/mock result must never be presented as production output.
@@ -38,8 +38,8 @@ your task needs** — do not load the whole spec into every turn.
    transaction; a separate dispatcher performs scheduler/index/delivery sync.
 7. **Budgets before calls.** Reserve estimated cost atomically before a paid
    model call, settle after. Deterministic reminders make zero model calls.
-8. **No credentials in the browser.** No AWS keys, no Bedrock calls, no model
-   IDs with secrets in `apps/web/`.
+8. **No credentials in the UI bundle.** No server secrets, no direct model
+   calls, no model IDs with secrets in `apps/web/` (the desktop webview UI).
 9. **The shipped desktop is server-backed (ADR 0006).** It must not start local
    API, speech, worker or model services. GCP owns durable user data.
    **Local development mode works with no cloud account.** `METIS_MODE=local` uses SQLite,
@@ -47,22 +47,22 @@ your task needs** — do not load the whole spec into every turn.
 10. **Path ownership.** Stay inside your assigned paths (see
     `docs/spec/development.md` table and `.claude/agents/`). Never `git add -A`.
 11. **Deploy only from `main`.** Anything running on a server (GCP VM,
-    Vercel) must be a commit on `main`. Merge feature branches first;
+    must be a commit on `main`. Merge feature branches first;
     `ops/gcp/deploy.sh` refuses any other branch.
 
 ## Layout
 
 ```
-apps/web/            React + TS + Vite PWA
+apps/web/            React + TS + Vite UI loaded by the Tauri desktop shell
+apps/desktop/        Tauri v2 desktop shell (the only client)
 packages/contracts/  JSON Schema, generated TS, Pydantic, fixtures
-services/api/        FastAPI app + Lambda adapter
-services/state/      StateStore: SQLite (local) + DynamoDB (cloud)
+services/api/        FastAPI app
+services/state/      StateStore: SQLite + filesystem objects
 services/pipeline/   jobs, outbox dispatcher, extraction workers
 services/scheduler/  schedule sync + reminder dispatch
 services/speech/     owned faster-whisper ASR worker + Dockerfile
 services/retrieval/  memory ingestion, embeddings, scoped search
 services/planner/    context assembly, plan generation, validation
-infra/               AWS CDK stacks
 ops/                 runbooks, cost worksheet, env procedures
 tests/e2e/           cross-feature scenarios with a controllable clock
 docs/                spec extracts, ADRs, progress ledger
@@ -73,10 +73,9 @@ docs/                spec extracts, ADRs, progress ledger
 ```bash
 make bootstrap     # install python + node deps
 make contracts     # regenerate TS types + Pydantic models from JSON Schema
-make dev           # local API + web + local worker loop (fixture adapters)
+make dev           # local API + worker loop + desktop (tauri dev), fixture adapters
 make test          # python + web unit tests
 make check         # lint, format check, typecheck
-make synth         # cdk synth (no deployment)
 ```
 
 ## Git cadence

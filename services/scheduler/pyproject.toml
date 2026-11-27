@@ -5,10 +5,6 @@ description = "Metis schedule synchronisation, reminder dispatch and notificatio
 requires-python = ">=3.12"
 dependencies = ["metis-contracts", "metis-state", "metis-pipeline"]
 
-[project.optional-dependencies]
-cloud = ["boto3>=1.35"]
-push = ["pywebpush>=2.0"]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

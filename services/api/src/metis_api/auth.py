@@ -1,4 +1,4 @@
-"""Authentication: verified Firebase or Cognito JWTs, plus local identities.
+"""Authentication: verified Firebase / Identity Platform JWTs, plus local identities.
 
 The ownership rule the whole system depends on lives here: ``user_id`` comes
 from the verified token subject and from nowhere else. A request body, a query
@@ -35,31 +35,12 @@ class Principal:
     """The authenticated caller. ``user_id`` is the partition key for all data."""
 
     user_id: str
-    source: str  # "firebase", "cognito", "fixture" or "desktop"
+    source: str  # "firebase", "fixture" or "desktop"
     email: str | None = None
 
     @property
     def is_fixture(self) -> bool:
         return self.source == "fixture"
-
-
-def _jwks_url() -> str:
-    cfg = settings().aws
-    return f"https://cognito-idp.{cfg.region}.amazonaws.com/{cfg.cognito_user_pool_id}/.well-known/jwks.json"
-
-
-def _jwks() -> Any:
-    """Fetch and cache the pool's JWKS. Keys rotate, so the cache has a TTL."""
-    import jwt
-
-    url = _jwks_url()
-    cached = _JWKS_CACHE.get(url)
-    now = time.time()
-    if cached and now - cached[0] < _JWKS_TTL_SECONDS:
-        return cached[1]
-    client = jwt.PyJWKClient(url, cache_keys=True)
-    _JWKS_CACHE[url] = (now, client)
-    return client
 
 
 def _firebase_jwks() -> Any:
@@ -75,8 +56,6 @@ def _firebase_jwks() -> Any:
     return client
 
 
-_KNOWN_KIDS: set[str] = set()
-_LAST_MISS = 0.0
 _MISS_INTERVAL_SECONDS = 30
 _FIREBASE_REFRESH_LOCK = threading.Lock()
 _FIREBASE_LAST_REFRESH = 0.0
@@ -100,60 +79,6 @@ def _firebase_signing_key(kid: str) -> Any:
     if match is None:
         raise ValueError("unknown signing key")
     return match.key
-
-
-def _refuse_unknown_kid_flood(token: str) -> None:
-    """PyJWKClient refetches the JWKS over the network on every unknown ``kid``,
-    so unauthenticated garbage tokens would become outbound requests. Allow one
-    refresh per interval; everything else is refused locally."""
-    import jwt
-
-    global _LAST_MISS
-    kid = jwt.get_unverified_header(token).get("kid")
-    if kid is None or kid in _KNOWN_KIDS:
-        return
-    now = time.monotonic()
-    if _KNOWN_KIDS and now - _LAST_MISS < _MISS_INTERVAL_SECONDS:
-        raise MetisError(ErrorCode.UNAUTHENTICATED, "the token could not be verified")
-    _LAST_MISS = now
-
-
-def verify_cognito_token(token: str) -> Principal:
-    """Validate signature, expiry, issuer and audience, then take the subject."""
-    import jwt
-
-    cfg = settings().aws
-    if not cfg.cognito_user_pool_id or not cfg.cognito_client_id:
-        raise MetisError(ErrorCode.UNAUTHENTICATED, "the identity provider is not configured")
-
-    issuer = f"https://cognito-idp.{cfg.region}.amazonaws.com/{cfg.cognito_user_pool_id}"
-    try:
-        _refuse_unknown_kid_flood(token)
-        # Cognito access tokens carry no ``aud`` (the app client is ``client_id``),
-        # id tokens carry ``aud``. Signature, issuer and expiry are verified here;
-        # the client binding is checked explicitly below, per token type.
-        claims = jwt.decode(
-            token,
-            _jwks().get_signing_key_from_jwt(token).key,
-            algorithms=["RS256"],
-            issuer=issuer,
-            options={"verify_aud": False, "require": ["exp", "iat", "sub", "token_use"]},
-        )
-    except jwt.ExpiredSignatureError as exc:
-        raise MetisError(ErrorCode.UNAUTHENTICATED, "the access token has expired") from exc
-    except Exception as exc:
-        raise MetisError(ErrorCode.UNAUTHENTICATED, "the token could not be verified") from exc
-
-    if kid := jwt.get_unverified_header(token).get("kid"):
-        _KNOWN_KIDS.add(kid)
-    token_use = claims.get("token_use")
-    bound_client = claims.get("client_id") if token_use == "access" else claims.get("aud")
-    if token_use not in ("access", "id") or bound_client != cfg.cognito_client_id:
-        raise MetisError(ErrorCode.UNAUTHENTICATED, "the token was not issued to this client")
-    subject = claims.get("sub")
-    if not subject:
-        raise MetisError(ErrorCode.UNAUTHENTICATED, "the token has no subject")
-    return Principal(user_id=str(subject), source="cognito", email=claims.get("email"))
 
 
 def verify_firebase_token(token: str) -> Principal:
@@ -199,7 +124,7 @@ def verify_firebase_token(token: str) -> Principal:
 
 def _desktop_principal(authorization: str | None) -> Principal:
     """Desktop-local mode: the bearer must be the launch secret, and is never
-    sent to Cognito. The owner is the install subject, not the secret."""
+    sent to an identity provider. The owner is the install subject, not the secret."""
     from .desktop import install_subject
 
     cfg = settings()
@@ -232,7 +157,7 @@ def principal_from_header(authorization: str | None) -> Principal:
         token = value.strip()
 
     if token:
-        return verify_firebase_token(token) if firebase_project_id else verify_cognito_token(token)
+        return verify_firebase_token(token)
 
     if firebase_project_id or cfg.environment == "prod" or not cfg.allow_fixture_identity:
         raise MetisError(ErrorCode.UNAUTHENTICATED, "authentication is required")

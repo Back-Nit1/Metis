@@ -2,7 +2,7 @@
 
 Everything here is a FIXTURE adapter (fixture inference, fixture transcriber,
 local schedule store, SQLite). Passing this suite is local evidence only; it
-says nothing about real ASR, Bedrock, DynamoDB, EventBridge or web push.
+says nothing about real ASR, models or the hosted server.
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ def h(adapters, clock, monkeypatch) -> Harness:
         # Tests choose a second authenticated subject with `Bearer <subject>`;
         # ownership still comes from the (stubbed) verified token, never a body.
         if authorization and authorization.startswith("Bearer "):
-            return Principal(user_id=authorization.split(" ", 1)[1], source="cognito")
+            return Principal(user_id=authorization.split(" ", 1)[1], source="firebase")
         return real(authorization)
 
     monkeypatch.setattr(deps, "principal_from_header", principal)

@@ -294,7 +294,7 @@ def test_the_reservation_is_settled_after_a_successful_call(store, clock):
 def test_a_provider_failure_retains_a_conservative_charge(store, clock, monkeypatch):
     class _Broken(FixtureInferenceClient):
         def complete_json(self, **kw):
-            raise MetisError(ErrorCode.PROVIDER_UNAVAILABLE, "bedrock is down")
+            raise MetisError(ErrorCode.PROVIDER_UNAVAILABLE, "provider is down")
 
     svc = ExtractionService(state_store=store, inference=_Broken(), clock=clock)
     day = clock.today_local(NY)

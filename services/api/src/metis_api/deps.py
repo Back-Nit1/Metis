@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Annotated, Any
 
 from fastapi import Depends, Header, Request
+from fastapi.concurrency import run_in_threadpool
 from metis_contracts import ErrorCode, MetisError, SystemClock, settings
 from metis_contracts.common import Record
 from metis_contracts.ports import (
@@ -271,7 +272,7 @@ async def get_context(
     x_correlation_id: Annotated[str | None, Header(alias="X-Correlation-Id")] = None,
 ) -> RequestContext:
     fingerprint: str | None = None
-    principal = principal_from_header(authorization)
+    principal = await run_in_threadpool(principal_from_header, authorization)
     if principal.is_fixture and not is_loopback_client(request):
         # The demo identity needs no credential, so it is only for this machine.
         # The Host guard stops DNS rebinding, but a LAN caller can send any Host.

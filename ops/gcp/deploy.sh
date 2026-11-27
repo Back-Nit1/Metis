@@ -3,7 +3,7 @@
 #
 #   PROJECT=<gcp-project-id> ops/gcp/deploy.sh
 #
-# Caddy serves the browser build and routes /v1 requests to loopback services.
+# Caddy routes /v1 requests to loopback services; it serves no web app.
 # SSH stays IAP-only. Configure per-user server mode with configure-hosted.sh.
 #
 # Ships committed HEAD (git archive), not the working tree.
@@ -113,20 +113,18 @@ if [ -z "$(g compute instances describe "$VM" --zone "$ZONE" --format='value(net
   g compute instances add-access-config "$VM" --zone "$ZONE" --access-config-name external-nat --address "$IP"
 fi
 HOST="${IP//./-}.sslip.io"
-export VITE_METIS_API="" VITE_METIS_LOGIN=firebase
 
 # Validate the edge inputs before copying or changing anything on the VM.
 HOST="$HOST" METIS_API_UPSTREAMS="$METIS_API_UPSTREAMS" METIS_CHANGES_UPSTREAMS="$METIS_CHANGES_UPSTREAMS" \
   ops/gcp/render-caddyfile.sh >/dev/null
 
-# Build the web client from the same commit, in a clean export.
+# Ship the committed tree as a clean export.
 stage="$(mktemp -d)"; trap 'rm -rf "$stage" "$stage.tar.gz"' EXIT
 git archive "$BUILD_SHA" | tar -x -C "$stage"
-(cd "$stage" && pnpm install --frozen-lockfile --filter @metis/web... && pnpm --filter @metis/web build)
 # macOS otherwise serializes com.apple.* metadata into pax headers that GNU
 # tar on the VM cannot interpret, flooding deploy output with harmless noise.
 COPYFILE_DISABLE=1 tar -czf "$stage.tar.gz" -C "$stage" \
-  --exclude node_modules --exclude infra --exclude 'apps/desktop' .
+  --exclude node_modules --exclude 'apps/desktop' --exclude 'apps/web' .
 
 ssh_ready() { g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command true 2>/dev/null; }
 for _ in $(seq 20); do ssh_ready && break; sleep 6; done
@@ -140,7 +138,7 @@ g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "$VM_SETUP_COM
 
 cat <<EOF
 
-Deployed: https://$HOST (web and API)
+Deployed: https://$HOST (API)
 Health: https://$HOST/v1/health
 See ops/gcp/hosted-desktop.md for sign-in and cutover.
 EOF

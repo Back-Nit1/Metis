@@ -1,7 +1,6 @@
 """Metis scheduling and delivery."""
 
 from .schedule_store import (
-    EventBridgeScheduleStore,
     LocalScheduleStore,
     build_schedule_store,
     daily_schedule_name,
@@ -26,17 +25,14 @@ from .service import (
 from .transports import (
     FixtureTransport,
     InAppTransport,
-    WebPushTransport,
     build_notification_transports,
 )
 
 __all__ = [
     "DueDecision",
-    "EventBridgeScheduleStore",
     "FixtureTransport",
     "InAppTransport",
     "LocalScheduleStore",
-    "WebPushTransport",
     "assert_transition",
     "build_notification",
     "build_notification_transports",

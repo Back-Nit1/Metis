@@ -34,7 +34,7 @@ explicit interface specification; it must not claim the skill was used.
 
 Other workers should use only skills that genuinely match their task and are
 installed in their environment. In particular, Cloudflare or Sites skills do
-not apply to this Tauri/AWS repository merely because it contains a web UI.
+not apply to this Tauri/GCP repository merely because it contains a web UI.
 
 ## Dispatch order
 
@@ -90,13 +90,7 @@ No two prompts that write `apps/web` may run concurrently. The desktop prompts
 
 ### Wave 3 — delivery readiness
 
-1. `30-infra-ops.md` — CDK entrypoint, worker infrastructure, operations and
-   synth validation. This prompt does not authorize deployment or paid AWS
-   resources.
-2. `31-cloud-smoke.md` exists for the final real-AWS gate, but must not be
-   dispatched until the user explicitly authorizes the account, region,
-   environment and potentially paid resource changes.
-3. The coordinator reconciles documentation, runs the full local gate, and
+1. The coordinator reconciles documentation, runs the full local gate, and
    writes the final implementation report.
 
 ## Standard worker return
@@ -113,5 +107,5 @@ Every worker returns only concrete evidence:
 - unrun checks and why;
 - unresolved decisions and narrow requests to another owner.
 
-Do not report fixture output as real inference, an unsynthesized stack as
-deployable, or a rendered screen as an end-to-end feature.
+Do not report fixture output as real inference, an undeployed change as
+live, or a rendered screen as an end-to-end feature.

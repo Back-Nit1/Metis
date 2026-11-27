@@ -1,7 +1,7 @@
 [project]
 name = "metis-api"
 version = "0.1.0"
-description = "Metis HTTP API (FastAPI) with a Lambda entry adapter"
+description = "Metis HTTP API (FastAPI)"
 requires-python = ">=3.12"
 dependencies = [
   "metis-contracts",
@@ -14,11 +14,6 @@ dependencies = [
   "uvicorn[standard]>=0.32",
   "pyjwt[crypto]>=2.9",
 ]
-
-[project.optional-dependencies]
-# A maintained ASGI-to-Lambda adapter, not a hand-written partial gateway
-# translation.
-lambda = ["mangum>=0.19"]
 
 [build-system]
 requires = ["hatchling"]

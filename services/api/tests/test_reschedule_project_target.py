@@ -18,7 +18,7 @@ def other(client, monkeypatch):
 
     def principal(authorization):
         if authorization and authorization.startswith("Bearer "):
-            return Principal(user_id=authorization.split(" ", 1)[1], source="cognito")
+            return Principal(user_id=authorization.split(" ", 1)[1], source="firebase")
         return real(authorization)
 
     monkeypatch.setattr(deps, "principal_from_header", principal)

@@ -23,7 +23,6 @@ dev = [
   "httpx>=0.27",
   "ruff>=0.7",
   "mypy>=1.13",
-  "boto3-stubs[bedrock-runtime,dynamodb,s3,scheduler,sqs]>=1.35",
 ]
 
 [tool.uv.sources]
@@ -53,14 +52,13 @@ testpaths = ["packages", "services", "tests"]
 addopts = "-q --strict-markers"
 markers = [
   "integration: needs a container, a local service or real audio decoding",
-  "cloud: needs authorized AWS credentials; skipped by default",
 ]
 filterwarnings = ["error::DeprecationWarning"]
 
 [tool.ruff]
 line-length = 110
 target-version = "py312"
-extend-exclude = ["packages/contracts/generated", "infra/cdk.out", "apps/desktop/python-sidecar-proto"]
+extend-exclude = ["packages/contracts/generated", "apps/desktop/python-sidecar-proto"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "DTZ", "T20", "SIM", "RUF"]
@@ -95,7 +93,7 @@ disallow_untyped_decorators = false
 # covers production sources only. Tests are verified by pytest; annotating
 # ~400 fixture-heavy test signatures to satisfy strict mode buys no safety and
 # would slow every worker down. Production strictness is NOT relaxed.
-exclude = "(cdk\\.out|node_modules|generated|/tests/)"
+exclude = "(node_modules|generated|/tests/)"
 
 [[tool.mypy.overrides]]
 # Hand-run bench scripts: not production code, no stubs for ctranslate2.

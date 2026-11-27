@@ -117,14 +117,7 @@ def get_job(job_id: str, ctx: Context) -> Job:
 
 @router.put("/local-uploads/{capture_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def local_upload(capture_id: str, request: Request, ctx: Context) -> Response:
-    """Local-mode stand-in for a presigned upload.
-
-    It exists so the browser's upload path is identical in local and cloud
-    mode. It still enforces ownership and the byte limit, so the validation
-    code is the same code.
-    """
-    if settings().is_cloud:
-        raise MetisError(ErrorCode.NOT_FOUND, "uploads go directly to object storage in cloud mode")
+    """Upload target for a capture's bytes; enforces ownership and the byte limit."""
     source = ctx.state.get(ctx.user_id, "source", capture_id)
     if source is None or source.object_ref is None:
         raise MetisError(ErrorCode.NOT_FOUND, f"capture {capture_id} has no upload target")

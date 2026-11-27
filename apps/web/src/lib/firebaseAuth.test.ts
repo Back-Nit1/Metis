@@ -1,15 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthError, authMode } from "./auth";
-import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase } from "./firebaseAuth";
+import { loadFirebase, refreshFirebase, resetFirebasePassword, saveFirebase, signInFirebase, signInFirebaseWithGoogle } from "./firebaseAuth";
 const config = { apiKey: "public-key", projectId: "metis-test" };
 afterEach(() => vi.unstubAllGlobals());
 
 describe("hosted authentication", () => {
-  it("requires per-user auth on hosted desktop and never uses the password proxy", () => {
-    expect(authMode({ VITE_METIS_LOGIN: "password" }, true, true).kind).toBe("misconfigured");
-    expect(authMode({ VITE_METIS_LOGIN: "firebase" }, false).kind).toBe("misconfigured");
-    expect(authMode({ VITE_METIS_FIREBASE_API_KEY: config.apiKey }, true, true)).toEqual({ kind: "misconfigured", missing: ["VITE_METIS_FIREBASE_PROJECT_ID"] });
-    expect(authMode({ VITE_METIS_FIREBASE_API_KEY: config.apiKey, VITE_METIS_FIREBASE_PROJECT_ID: config.projectId }, true, true)).toEqual({ kind: "firebase", config });
+  it("requires per-user auth on hosted desktop and none for local development", () => {
+    const env = { VITE_METIS_FIREBASE_API_KEY: config.apiKey, VITE_METIS_FIREBASE_PROJECT_ID: config.projectId };
+    expect(authMode({}, true)).toEqual({ kind: "misconfigured", missing: ["VITE_METIS_FIREBASE_API_KEY", "VITE_METIS_FIREBASE_PROJECT_ID"] });
+    expect(authMode({ VITE_METIS_FIREBASE_API_KEY: config.apiKey }, true)).toEqual({ kind: "misconfigured", missing: ["VITE_METIS_FIREBASE_PROJECT_ID"] });
+    expect(authMode(env, true)).toEqual({ kind: "firebase", config });
+    expect(authMode(env, false).kind).toBe("none");
   });
   it("sends credentials only to Identity Platform and uses the ID token", async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ idToken: "id-token", refreshToken: "refresh", expiresIn: "3600" })));
@@ -41,6 +42,19 @@ describe("hosted authentication", () => {
     const [url, init] = fetch.mock.calls[0]!;
     expect(url).toBe("https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=public-key");
     expect(JSON.parse(String(init.body))).toEqual({ requestType: "PASSWORD_RESET", email: "person@example.test" });
+  });
+  it("exchanges a Google credential through the configured Identity Platform project", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response(
+      JSON.stringify({ idToken: "firebase-id", refreshToken: "refresh", expiresIn: "3600" }),
+    ));
+    vi.stubGlobal("window", { location: { origin: "https://metis.example.test" } });
+    vi.stubGlobal("fetch", fetch);
+    expect((await signInFirebaseWithGoogle(config, "google-id")).accessToken).toBe("firebase-id");
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=public-key");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      postBody: "id_token=google-id&providerId=google.com", requestUri: "https://metis.example.test",
+    });
   });
   it("isolates remembered sessions by project and clears them on logout", () => {
     const data = new Map<string, string>();

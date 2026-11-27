@@ -1,8 +1,6 @@
-"""Local worker: outbox dispatch plus the local due-reminder/plan/sync timers.
+"""Worker: outbox dispatch plus the due-reminder/plan/sync timers.
 
-In the cloud these are separate things — a Lambda consumes SQS for the outbox,
-and EventBridge Scheduler invokes the due handler directly. Locally the worker
-polls both so `make dev` needs no AWS account.
+One process polls both, locally (`make dev`) and on the hosted VM.
 
     python -m metis_pipeline.local_worker [--once] [--interval 2] [--processes N] [--mode all|jobs|timers]
 
@@ -85,10 +83,6 @@ def build_context(*, timers_only: bool = False) -> Any:
     )
 
     if not timers_only:
-        from .transcription import build_asr_launcher
-
-        context.asr_launcher = build_asr_launcher()  # None outside cloud mode
-
         try:
             from metis_speech import build_transcriber
 

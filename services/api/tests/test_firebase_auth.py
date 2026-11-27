@@ -93,3 +93,13 @@ def test_captures_are_saved_on_server_and_isolated_by_verified_user(client, adap
     assert second.json()["capture_id"] != source_id
     assert client.post("/v1/captures", headers=alice, json=body).json()["capture_id"] == source_id
     assert adapters.state_store.get("alice", "source", source_id).transcripts[0].text == body["text"]
+
+
+def test_token_signed_by_another_key_is_rejected(monkeypatch, tokens):
+    configure(monkeypatch)
+    forged = tokens()
+    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    monkeypatch.setattr(auth, "_firebase_signing_key", lambda kid: other.public_key())
+    with pytest.raises(MetisError):
+        auth.verify_firebase_token(forged)
+    reset_settings_cache()

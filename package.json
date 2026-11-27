@@ -5,13 +5,11 @@
   "description": "Metis — voice-first multimodal personal assistant (node workspace root)",
   "packageManager": "pnpm@9.12.3",
   "scripts": {
-    "dev": "pnpm --filter @metis/web dev",
+    "dev": "pnpm --filter @metis/desktop tauri dev",
     "build": "pnpm --filter @metis/web build",
     "test": "pnpm --filter @metis/web test",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint",
-    "synth": "pnpm --filter @metis/infra synth",
-    "cdk": "pnpm --filter @metis/infra cdk"
+    "lint": "pnpm -r lint"
   },
   "engines": {
     "node": ">=20"

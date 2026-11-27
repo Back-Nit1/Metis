@@ -8,8 +8,8 @@ fetched.
 
 Configuration (all env, none required in fixture mode):
 
-* ``METIS_INFERENCE_ENGINE`` — ``auto`` (default: mode-based), ``fixture``,
-  ``local`` or ``cloud``.
+* ``METIS_INFERENCE_ENGINE`` — ``auto`` (default: mode-based), ``fixture``
+  or ``local``.
 * ``METIS_LOCAL_LLM_ENDPOINT`` — loopback ``http://127.0.0.1:<port>`` only.
 * ``METIS_LOCAL_LLM_MODEL`` / ``METIS_LOCAL_EMBED_MODEL`` — explicit, no default.
 """
@@ -29,7 +29,7 @@ from metis_contracts import AdapterMode, ErrorCode, MetisError, settings
 
 from .inference import extract_json, rough_token_count
 
-ENGINES = ("auto", "fixture", "local", "cloud")
+ENGINES = ("auto", "fixture", "local")
 DEFAULT_ENDPOINT = "http://127.0.0.1:11434"
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
@@ -40,7 +40,7 @@ def inference_engine() -> str:
     if engine not in ENGINES:
         raise ValueError(f"METIS_INFERENCE_ENGINE must be one of {ENGINES}; got {engine!r}")
     if engine == "auto":
-        return "cloud" if settings().uses_real_inference else "fixture"
+        return "local" if settings().uses_real_inference else "fixture"
     return engine
 
 
@@ -125,7 +125,7 @@ def _has_model(installed: set[str], model: str) -> bool:
 
 
 class LocalInferenceClient:
-    """Ollama chat with schema-constrained JSON. Same port as Bedrock/fixture."""
+    """Ollama chat with schema-constrained JSON. Same port as the fixture."""
 
     mode = AdapterMode.LOCAL
 

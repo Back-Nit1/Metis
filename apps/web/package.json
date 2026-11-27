@@ -2,7 +2,7 @@
   "name": "@metis/web",
   "private": true,
   "version": "0.1.0",
-  "description": "Metis web client (React + TypeScript + Vite PWA)",
+  "description": "Metis desktop UI (React + TypeScript + Vite, loaded by the Tauri shell)",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -11,11 +11,10 @@
  */
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { connectDesktop, getDesktopState, isDesktop, subscribeDesktop } from "../lib/desktop";
+import { connectDesktop, getDesktopState, subscribeDesktop } from "../lib/desktop";
 import { Icon, type IconName } from "../components/Icon";
 import { Notice, PageHeader } from "../components/Card";
 import { ThemeToggle } from "../components/ThemeToggle";
-import { Site, SITE_HASH, type SiteRoute } from "./Site";
 import { CaptureScreen } from "../screens/CaptureScreen";
 import { InboxScreen } from "../screens/InboxScreen";
 import { NotificationsScreen } from "../screens/NotificationsScreen";
@@ -341,7 +340,7 @@ function DesktopGate({ children }: { children: ReactNode }) {
     if (desktop.phase === "starting") void connectDesktop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  if (desktop.phase === "browser" || desktop.phase === "ready") return <>{children}</>;
+  if (desktop.phase === "ready") return <>{children}</>;
   return (
     <main className="grid min-h-dvh place-items-center bg-canvas p-6 text-ink">
       <div role="status" className="max-w-sm text-center">
@@ -365,22 +364,7 @@ function DesktopGate({ children }: { children: ReactNode }) {
   );
 }
 
-/** Which public page the URL names, or null when it names the app (`#/today`,
- *  `#main`, ...) or is a sign-in redirect. The desktop shell never shows the
- *  site. The app's own skip link (`#main`) must not bounce a user out of it. */
-function siteRoute(): SiteRoute | null {
-  if (isDesktop() || window.location.search.includes("code=")) return null;
-  return SITE_HASH[window.location.hash] ?? null;
-}
-
 export function App() {
-  const [site, setSite] = useState(siteRoute);
-  useEffect(() => {
-    const sync = () => setSite(siteRoute());
-    window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
-  }, []);
-  if (site) return <Site route={site} onOpen={() => (window.location.hash = "#/today")} />;
   return (
     <DesktopGate>
       <AuthGate>

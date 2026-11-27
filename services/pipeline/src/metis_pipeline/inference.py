@@ -1,4 +1,4 @@
-"""InferenceClient adapters: Bedrock Converse and a deterministic fixture.
+"""InferenceClient adapters: a deterministic fixture (Ollama lives in local_llm).
 
 Both enforce the same contract:
 
@@ -21,7 +21,7 @@ import re
 import time
 from typing import Any
 
-from metis_contracts import AdapterMode, ErrorCode, MetisError, settings
+from metis_contracts import AdapterMode, ErrorCode, MetisError
 
 log = logging.getLogger("metis.pipeline.inference")
 
@@ -386,176 +386,10 @@ def _fixture_extraction(user_content: str) -> dict[str, Any]:
     }
 
 
-class BedrockInferenceClient:
-    """Amazon Bedrock Converse with schema-constrained output where available.
-
-    The adapter records a capability per model id rather than assuming every
-    Bedrock model supports native structured output. When it does not, the
-    schema goes into the prompt and the server validates the response.
-    """
-
-    mode = AdapterMode.CLOUD
-
-    #: Models known to accept a tool/schema constraint on Converse. Verify
-    #: against current provider documentation before adding an entry.
-    STRUCTURED_OUTPUT_MODELS: tuple[str, ...] = (
-        "amazon.nova-micro",
-        "amazon.nova-lite",
-        "amazon.nova-pro",
-        "anthropic.claude",
-    )
-
-    def __init__(self, model_id: str | None = None, region: str | None = None) -> None:
-        import boto3
-
-        cfg = settings()
-        self.model_id = model_id or cfg.models.extraction_model_id
-        self._client = boto3.client("bedrock-runtime", region_name=region or cfg.aws.region)
-
-    @property
-    def supports_structured_output(self) -> bool:
-        return any(self.model_id.startswith(prefix) for prefix in self.STRUCTURED_OUTPUT_MODELS)
-
-    def complete_json(
-        self,
-        *,
-        prompt_version: str,
-        system: str,
-        user_content: str,
-        json_schema: dict[str, Any],
-        max_input_tokens: int,
-        max_output_tokens: int,
-        timeout_seconds: float = 30.0,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        estimated_in = rough_token_count(system) + rough_token_count(user_content)
-        if estimated_in > max_input_tokens:
-            # Deliberate rejection: the caller splits the source into ranges
-            # rather than silently truncating away obligations.
-            raise MetisError(
-                ErrorCode.LIMIT_EXCEEDED,
-                f"input is ~{estimated_in} tokens, over the {max_input_tokens} cap; split the source",
-            )
-
-        started = time.monotonic()
-        attempts = 0
-        max_attempts = 1 + max(0, settings().limits.extraction_repair_attempts)
-        last_error: str | None = None
-        content = user_content
-
-        while attempts < max_attempts:
-            attempts += 1
-            raw, usage = self._converse(
-                system=system,
-                user_content=content,
-                json_schema=json_schema,
-                max_output_tokens=max_output_tokens,
-            )
-            try:
-                parsed = raw if isinstance(raw, dict) else extract_json(str(raw))
-            except MetisError as exc:
-                last_error = exc.message
-                if attempts >= max_attempts:
-                    break
-                # One bounded repair, with the exact failure quoted back.
-                content = (
-                    f"{user_content}\n\n---\nThe previous response was rejected: {exc.message}. "
-                    "Return only a JSON object matching the schema."
-                )
-                continue
-            usage.update(
-                {
-                    "model_id": self.model_id,
-                    "adapter_mode": self.mode.value,
-                    "prompt_version": prompt_version,
-                    "attempts": attempts,
-                    "latency_seconds": round(time.monotonic() - started, 4),
-                    "structured_output": self.supports_structured_output,
-                }
-            )
-            usage["micro_usd"] = self.estimate_micro_usd(
-                input_tokens=int(usage.get("input_tokens", estimated_in)),
-                output_tokens=int(usage.get("output_tokens", 0)),
-            )
-            return parsed, usage
-
-        raise MetisError(
-            ErrorCode.SEMANTIC_VALIDATION_FAILED,
-            f"the model did not return valid JSON after {attempts} attempts: {last_error}",
-        )
-
-    def _converse(
-        self, *, system: str, user_content: str, json_schema: dict[str, Any], max_output_tokens: int
-    ) -> tuple[Any, dict[str, Any]]:
-        kwargs: dict[str, Any] = {
-            "modelId": self.model_id,
-            "system": [{"text": system}],
-            "messages": [{"role": "user", "content": [{"text": user_content}]}],
-            "inferenceConfig": {"maxTokens": max_output_tokens, "temperature": 0.0},
-        }
-        if self.supports_structured_output:
-            # Tool-output path: the only tool is the output shape itself, so the
-            # model still cannot take any action.
-            kwargs["toolConfig"] = {
-                "tools": [
-                    {
-                        "toolSpec": {
-                            "name": "emit",
-                            "description": "Return the structured result.",
-                            "inputSchema": {"json": json_schema},
-                        }
-                    }
-                ],
-                "toolChoice": {"tool": {"name": "emit"}},
-            }
-        else:
-            kwargs["messages"][0]["content"].append(
-                {"text": f"Respond with JSON matching this schema:\n{json.dumps(json_schema)}"}
-            )
-
-        try:
-            response = self._client.converse(**kwargs)
-        except self._client.exceptions.ThrottlingException as exc:
-            raise MetisError(
-                ErrorCode.RATE_LIMITED, "Bedrock throttled the request", retry_after_seconds=2
-            ) from exc
-        except self._client.exceptions.ValidationException as exc:
-            raise MetisError(ErrorCode.VALIDATION_FAILED, f"Bedrock rejected the request: {exc}") from exc
-        except Exception as exc:
-            raise MetisError(ErrorCode.PROVIDER_UNAVAILABLE, f"Bedrock call failed: {exc}") from exc
-
-        usage_block = response.get("usage", {})
-        usage = {
-            "input_tokens": int(usage_block.get("inputTokens", 0)),
-            "output_tokens": int(usage_block.get("outputTokens", 0)),
-            "cache_read_tokens": int(usage_block.get("cacheReadInputTokens", 0) or 0),
-            "stop_reason": response.get("stopReason"),
-        }
-        if usage.get("stop_reason") == "max_tokens":
-            # Truncation is handled deliberately, never passed off as a result.
-            raise MetisError(
-                ErrorCode.SEMANTIC_VALIDATION_FAILED,
-                "the model response hit the output cap and was truncated",
-            )
-
-        blocks = response.get("output", {}).get("message", {}).get("content", [])
-        for block in blocks:
-            if "toolUse" in block:
-                return block["toolUse"].get("input", {}), usage
-        texts = [b["text"] for b in blocks if "text" in b]
-        return "\n".join(texts), usage
-
-    def estimate_micro_usd(self, *, input_tokens: int, output_tokens: int) -> int:
-        from .budget import estimate_micro_usd
-
-        return estimate_micro_usd(input_tokens=input_tokens, output_tokens=output_tokens)
-
-
 def build_inference_client(model_id: str | None = None) -> Any:
     from .local_llm import LocalInferenceClient, inference_engine
 
     engine = inference_engine()
-    if engine == "cloud":
-        return BedrockInferenceClient(model_id=model_id)
     if engine == "local":
         return LocalInferenceClient()
     return FixtureInferenceClient()

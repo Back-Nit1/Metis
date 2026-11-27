@@ -6,8 +6,8 @@ worker, Vite) on private ports, so the suite needs no cloud account and never
 touches the deployed app. A deployed target is READ-ONLY: mutating journeys skip.
 
 Everything that passes against the local stack is evidence about FIXTURE
-adapters only (fixture inference / transcriber); it says nothing about Bedrock
-or real ASR.
+adapters only (fixture inference / transcriber); it says nothing about real
+models or real ASR.
 
 Opt-in: these tests need a browser and servers, so they are marked `webqa` and
 `integration` (excluded from `make test`). Run with `pytest tests/e2e/web -m webqa`.

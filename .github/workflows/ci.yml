@@ -1,5 +1,5 @@
 # Coordinator-owned. No cloud credentials, no model downloads, no paid calls:
-# real-ASR and AWS jobs are opt-in (workflow_dispatch) and not defined here.
+# real-ASR jobs are opt-in (workflow_dispatch) and not defined here.
 name: ci
 on:
   pull_request:
@@ -24,8 +24,6 @@ jobs:
       - run: make check
       - run: make test
       - run: pnpm --filter @metis/web build
-      - run: make synth
-      - run: pnpm --filter @metis/infra test
       - run: pnpm audit --prod --audit-level high
       - run: uvx pip-audit -r <(uv export --frozen --no-hashes --all-packages | grep -v '^-e') --disable-pip --no-deps
         shell: bash

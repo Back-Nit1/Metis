@@ -13,7 +13,7 @@ import { Card, Chip, Empty, Loading, Notice, PageHeader, SectionHeading } from "
 import { Field, inputClass } from "../components/Field";
 import { useSession } from "../app/session";
 import { api } from "../lib/api";
-import { isHostedDesktop, desktopCommand, isDesktop } from "../lib/desktop";
+import { isHostedDesktop, desktopCommand } from "../lib/desktop";
 import { timeLabel } from "../lib/format";
 import { mutationError } from "../lib/mutationError";
 import {
@@ -27,8 +27,6 @@ import {
   type OllamaStatus,
 } from "../lib/sources";
 import { useChanges, useSync } from "../lib/useSync";
-
-const hostedSources = () => isHostedDesktop() || !!import.meta.env.VITE_METIS_FIREBASE_PROJECT_ID;
 
 const EMPTY_DRAFT: FolderDraft = { title: "", paths: "", include: "", exclude: "" };
 const KIND_LABEL: Record<string, string> = { local_folder: "Folder", gmail: "Gmail", gdrive: "Drive" };
@@ -56,7 +54,7 @@ function AddFolder({ onAdded }: { onAdded: (c: Connector) => void }) {
   const [key, setKey] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [say, setSay] = useState<Say>(null);
-  const [picker, setPicker] = useState(isDesktop());
+  const [picker, setPicker] = useState(true);
   const set = (patch: Partial<FolderDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
   const pick = async () => {
@@ -180,8 +178,6 @@ function ConnectorRow({
       await api.syncConnector(c.id, crypto.randomUUID());
       return { tone: "info", text: `Sync of “${c.title}” is queued. It has not run yet.` };
     });
-  // A hosted folder lives on someone's Mac; only the desktop app can sync it.
-  const canSync = !hostedSources() || isHostedDesktop();
   const remove = () =>
     run("This source", async () => {
       await api.deleteConnector(c.id);
@@ -210,11 +206,7 @@ function ConnectorRow({
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          {canSync ? (
-            <Button disabled={busy || paused} onClick={() => void syncNow()}>Sync now</Button>
-          ) : (
-            <span className="self-center text-xs text-muted">Syncs from the Metis desktop app</span>
-          )}
+          <Button disabled={busy || paused} onClick={() => void syncNow()}>Sync now</Button>
           <Button disabled={busy} onClick={() => void toggle()}>{paused ? "Resume" : "Pause"}</Button>
           {!confirming && <Button variant="danger" disabled={busy} onClick={() => setConfirming(true)}>Remove…</Button>}
         </div>
@@ -296,7 +288,7 @@ export function SourcesScreen() {
   useEffect(() => {
     void loadConnectors();
     api.queue().then(setFetchedQueue, () => undefined);
-    if (!hostedSources()) void desktopCommand<OllamaStatus>("ollama_status").then((r) => r.ok && setOllama(r.value));
+    if (!isHostedDesktop()) void desktopCommand<OllamaStatus>("ollama_status").then((r) => r.ok && setOllama(r.value));
   }, [loadConnectors]);
   useChanges(["connector", "source"], () => void loadConnectors());
   // Dead letters are not entities in the change feed; their count in the queue stats is.
@@ -313,7 +305,7 @@ export function SourcesScreen() {
         sub="Folders Metis reads and indexes so search and plans can cite them. Originals are never changed."
       />
       {say && <Notice tone={say.tone} live>{say.text}</Notice>}
-      {!hostedSources() && keywordOnly(ollama) && (
+      {!isHostedDesktop() && keywordOnly(ollama) && (
         <Notice tone="warn">
           Keyword search only: {ollama?.available ? "the embedding model is not installed in Ollama" : "Ollama is not running"}, so files are matched by words and names, not meaning.
         </Notice>
@@ -360,7 +352,7 @@ export function SourcesScreen() {
               </ul>
             )}
           </section>
-          {(!hostedSources() || isHostedDesktop()) && <AddFolder onAdded={() => void loadConnectors()} />}
+          <AddFolder onAdded={() => void loadConnectors()} />
         </div>
 
         <aside className="mt-6 flex flex-col gap-6 lg:mt-0">

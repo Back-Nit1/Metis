@@ -33,8 +33,13 @@ spec: ## re-extract docs/spec/* from the canonical prompt
 	python3 scripts/extract_spec.py
 
 .PHONY: dev
-dev: ## API + local worker loop + web, all on fixture adapters
-	./scripts/dev.sh
+# Tauri's beforeDevCommand starts the Vite dev server; the API and worker stop
+# when the desktop process exits.
+dev: ## API + local worker loop + desktop shell, all on fixture adapters
+	@trap 'kill $$(jobs -p) 2>/dev/null' EXIT; \
+	$(UV) run uvicorn metis_api.main:app --reload --port 8000 & \
+	$(UV) run python -m metis_pipeline.local_worker & \
+	$(PNPM) --filter @metis/desktop tauri dev
 
 .PHONY: api
 api: ## run only the API (fixture adapters, SQLite state)
@@ -44,17 +49,12 @@ api: ## run only the API (fixture adapters, SQLite state)
 worker: ## run the local outbox/job worker loop
 	$(UV) run python -m metis_pipeline.local_worker
 
-.PHONY: web
-web: ## run only the web client
-	$(PNPM) --filter @metis/web dev
-
 .PHONY: test
 test: ## python unit tests + web unit tests
-	$(UV) run pytest -m "not integration and not cloud"
+	$(UV) run pytest -m "not integration"
 	@# No-op while apps/web has no package.json (pnpm exits 0 on no match).
 	@# The web package's own `test` script must be non-watching.
 	$(PNPM) --filter @metis/web test
-	node --test ops/vercel/proxy.test.mjs
 
 .PHONY: test-integration
 test-integration: ## tests that need a container or real audio decoding
@@ -74,10 +74,6 @@ fmt: ## autoformat python and web sources
 	$(UV) run ruff format .
 	$(PNPM) -r lint --fix || true
 
-.PHONY: synth
-synth: ## cdk synth every stack (no AWS calls beyond lookups, no deploy)
-	$(PNPM) --filter @metis/infra synth
-
 .PHONY: desktop-test
 desktop-test: ## cargo + sidecar backend tests for the Tauri shell (needs rust toolchain)
 	$(PNPM) --filter @metis/desktop test
@@ -96,5 +92,5 @@ retrieval-bench: ## recall/MRR/stale/leak metrics per retrieval mode on the labe
 
 .PHONY: clean
 clean: ## remove local build and runtime artifacts (keeps git-tracked files)
-	rm -rf .pytest_cache .ruff_cache .mypy_cache infra/cdk.out apps/web/dist
+	rm -rf .pytest_cache .ruff_cache .mypy_cache apps/web/dist
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

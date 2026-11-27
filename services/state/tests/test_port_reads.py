@@ -16,7 +16,6 @@ from metis_contracts import (
     SourceArtifact,
     reset_settings_cache,
 )
-from metis_state.dynamo_store import DynamoStateStore
 from metis_state.sqlite_store import SqliteStateStore
 
 T0 = datetime(2026, 10, 5, 14, 0, tzinfo=UTC)
@@ -75,21 +74,8 @@ def sqlite(tmp_path) -> SqliteStateStore:
 
 
 @pytest.fixture()
-def dynamo(sqlite) -> DynamoStateStore:
-    """A Dynamo store whose kind-range query is served from the SQLite rows."""
-    store = DynamoStateStore.__new__(DynamoStateStore)
-
-    def query_kind(user_id, kind, *, cursor, limit, page_limit=None):
-        page = sqlite._page(kind, user_id, "", [], cursor=cursor, limit=limit)
-        return page.items, page.next_cursor, page.complete
-
-    store._query_kind = query_kind  # type: ignore[method-assign]
-    return store
-
-
-@pytest.fixture(params=["sqlite", "dynamo"])
-def store(request):
-    return request.getfixturevalue(request.param)
+def store(sqlite):
+    return sqlite
 
 
 def test_find_source_by_client_id_is_owner_scoped(store):

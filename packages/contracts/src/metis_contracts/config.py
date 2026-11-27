@@ -1,12 +1,10 @@
 """Environment-driven settings, validated once at process start.
 
 Limits live here rather than scattered across workers so a single place
-answers "what is the maximum upload?" for the browser, the API and the ASR
+answers "what is the maximum upload?" for the desktop, the API and the ASR
 worker. `METIS_MODE` selects the adapter set:
 
 * ``local``   — SQLite state, filesystem objects, fixture inference, fixture ASR
-* ``hybrid``  — local state, real Bedrock/ASR; for development against AWS
-* ``cloud``   — DynamoDB, S3, Bedrock, ECS ASR, EventBridge Scheduler
 * ``server``  — server-owned SQLite/filesystem, real speech and inference;
   clients access the database only through the authenticated API
 
@@ -25,8 +23,6 @@ from typing import Literal, cast
 
 class Mode(StrEnum):
     LOCAL = "local"
-    HYBRID = "hybrid"
-    CLOUD = "cloud"
     SERVER = "server"
 
 
@@ -169,22 +165,12 @@ class Limits:
 
 @dataclass(frozen=True)
 class ModelConfig:
-    """Extraction, planning and embedding model ids are independent on purpose.
+    """Embedding shape and token prices used for budget estimates.
 
     Prices are configuration, never hard-coded facts: verify the region's rate
     card before trusting an estimate derived from them.
     """
 
-    extraction_model_id: str = field(
-        default_factory=lambda: _env("METIS_EXTRACTION_MODEL_ID", "amazon.nova-micro-v1:0") or ""
-    )
-    escalation_model_id: str | None = field(default_factory=lambda: _env("METIS_ESCALATION_MODEL_ID"))
-    planning_model_id: str = field(
-        default_factory=lambda: _env("METIS_PLANNING_MODEL_ID", "amazon.nova-lite-v1:0") or ""
-    )
-    embedding_model_id: str = field(
-        default_factory=lambda: _env("METIS_EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0") or ""
-    )
     embedding_dimensions: int = field(default_factory=lambda: _env_int("METIS_EMBEDDING_DIMENSIONS", 512))
     embedding_normalize: bool = field(default_factory=lambda: _env_bool("METIS_EMBEDDING_NORMALIZE", True))
     allow_escalation: bool = field(default_factory=lambda: _env_bool("METIS_ALLOW_ESCALATION", False))
@@ -192,9 +178,6 @@ class ModelConfig:
     input_micro_usd_per_1k: int = field(default_factory=lambda: _env_int("METIS_INPUT_MICRO_USD_PER_1K", 35))
     output_micro_usd_per_1k: int = field(
         default_factory=lambda: _env_int("METIS_OUTPUT_MICRO_USD_PER_1K", 140)
-    )
-    embedding_micro_usd_per_1k: int = field(
-        default_factory=lambda: _env_int("METIS_EMBED_MICRO_USD_PER_1K", 2)
     )
 
     prompt_version_extraction: str = "extract/v1"
@@ -272,27 +255,6 @@ class DesktopConfig:
 
 
 @dataclass(frozen=True)
-class AwsConfig:
-    region: str = field(default_factory=lambda: _env("AWS_REGION", "us-east-1") or "")
-    table_name: str | None = field(default_factory=lambda: _env("METIS_TABLE_NAME"))
-    sources_bucket: str | None = field(default_factory=lambda: _env("METIS_SOURCES_BUCKET"))
-    vector_bucket: str | None = field(default_factory=lambda: _env("METIS_VECTOR_BUCKET"))
-    vector_index: str | None = field(default_factory=lambda: _env("METIS_VECTOR_INDEX"))
-    ingest_queue_url: str | None = field(default_factory=lambda: _env("METIS_INGEST_QUEUE_URL"))
-    scheduler_group: str | None = field(default_factory=lambda: _env("METIS_SCHEDULER_GROUP"))
-    scheduler_role_arn: str | None = field(default_factory=lambda: _env("METIS_SCHEDULER_ROLE_ARN"))
-    reminder_target_arn: str | None = field(default_factory=lambda: _env("METIS_REMINDER_TARGET_ARN"))
-    daily_plan_target_arn: str | None = field(default_factory=lambda: _env("METIS_DAILY_PLAN_TARGET_ARN"))
-    speech_state_machine_arn: str | None = field(
-        default_factory=lambda: _env("METIS_SPEECH_STATE_MACHINE_ARN")
-    )
-    cognito_user_pool_id: str | None = field(default_factory=lambda: _env("METIS_COGNITO_USER_POOL_ID"))
-    cognito_client_id: str | None = field(default_factory=lambda: _env("METIS_COGNITO_CLIENT_ID"))
-    vapid_public_key: str | None = field(default_factory=lambda: _env("METIS_VAPID_PUBLIC_KEY"))
-    vapid_private_key_param: str | None = field(default_factory=lambda: _env("METIS_VAPID_PRIVATE_KEY_PARAM"))
-
-
-@dataclass(frozen=True)
 class Settings:
     mode: Mode = field(default_factory=lambda: Mode(_env("METIS_MODE", "local") or "local"))
     environment: Literal["dev", "staging", "prod"] = field(default_factory=_env_environment)
@@ -321,7 +283,6 @@ class Settings:
     limits: Limits = field(default_factory=Limits)
     models: ModelConfig = field(default_factory=ModelConfig)
     speech: SpeechConfig = field(default_factory=SpeechConfig)
-    aws: AwsConfig = field(default_factory=AwsConfig)
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
 
     def __post_init__(self) -> None:
@@ -330,54 +291,29 @@ class Settings:
                 raise ValueError(
                     "server mode requires per-user authentication, not fixture or desktop identity"
                 )
-            if not self.firebase_project_id and not (
-                self.aws.cognito_user_pool_id and self.aws.cognito_client_id
-            ):
-                raise ValueError("server mode requires METIS_FIREBASE_PROJECT_ID or configured Cognito")
+            if not self.firebase_project_id:
+                raise ValueError("server mode requires METIS_FIREBASE_PROJECT_ID")
             if self.desktop.speech_engine not in ("remote", "faster_whisper"):
                 raise ValueError("server mode requires a real METIS_SPEECH_ENGINE")
-            if _env("METIS_INFERENCE_ENGINE") not in ("local", "cloud"):
-                raise ValueError("server mode requires an explicit real METIS_INFERENCE_ENGINE")
-            if _env("METIS_INFERENCE_ENGINE") == "local" and not _env("METIS_LOCAL_LLM_MODEL"):
+            if _env("METIS_INFERENCE_ENGINE") != "local":
+                raise ValueError("server mode requires METIS_INFERENCE_ENGINE=local")
+            if not _env("METIS_LOCAL_LLM_MODEL"):
                 raise ValueError("server inference requires METIS_LOCAL_LLM_MODEL")
             if _env("METIS_EMBED_ENGINE") == "fixture":
                 raise ValueError("server mode refuses fixture embeddings")
-            if _env("METIS_INFERENCE_ENGINE") == "local" and not _env("METIS_LOCAL_EMBED_MODEL"):
+            if not _env("METIS_LOCAL_EMBED_MODEL"):
                 raise ValueError("server embeddings require METIS_LOCAL_EMBED_MODEL")
-        if self.mode is Mode.CLOUD and self.allow_fixture_identity:
-            # The default is True for local development; a deployed (staging or
-            # otherwise non-prod) cloud stack must not answer anonymous callers
-            # as the demo user.
-            raise ValueError("METIS_ALLOW_FIXTURE_IDENTITY must be false when METIS_MODE=cloud")
         if self.environment == "prod":
             # A production deployment must not be able to fall back to a
-            # fixture identity or a fixture model when auth or Bedrock fails.
+            # fixture identity or a fixture model when auth or inference fails.
             if self.allow_fixture_identity:
                 raise ValueError("METIS_ALLOW_FIXTURE_IDENTITY must be false when METIS_ENV=prod")
-            if self.mode not in (Mode.CLOUD, Mode.SERVER):
-                raise ValueError("METIS_ENV=prod requires METIS_MODE=cloud or server")
-            if self.desktop.enabled:
-                raise ValueError("METIS_DESKTOP_AUTH_SECRET must be unset when METIS_ENV=prod")
-            missing = [
-                name
-                for name, value in (
-                    ("METIS_TABLE_NAME", self.aws.table_name),
-                    ("METIS_SOURCES_BUCKET", self.aws.sources_bucket),
-                    ("METIS_COGNITO_USER_POOL_ID", self.aws.cognito_user_pool_id),
-                    ("METIS_COGNITO_CLIENT_ID", self.aws.cognito_client_id),
-                )
-                if not value and self.mode is Mode.CLOUD
-            ]
-            if missing:
-                raise ValueError(f"production configuration is missing: {', '.join(missing)}")
-
-    @property
-    def is_cloud(self) -> bool:
-        return self.mode is Mode.CLOUD
+            if self.mode is not Mode.SERVER:
+                raise ValueError("METIS_ENV=prod requires METIS_MODE=server")
 
     @property
     def uses_real_inference(self) -> bool:
-        return self.mode in (Mode.CLOUD, Mode.HYBRID, Mode.SERVER)
+        return self.mode is Mode.SERVER
 
 
 @lru_cache(maxsize=1)

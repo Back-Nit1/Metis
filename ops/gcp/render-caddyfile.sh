@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Render the public Caddy edge configuration.
+# Render the public Caddy edge configuration: /v1/* (including /v1/health)
+# goes to the API; every other path is a 404.
 #
 # METIS_API_UPSTREAMS accepts a comma- or whitespace-separated list of
 # host:port endpoints. Keep it to private/internal endpoints; Caddy is the
@@ -88,19 +89,11 @@ CADDY
 proxy "${changes_upstreams[@]}"
 printf '\t}\n\t@api path /v1 /v1/*\n\thandle @api {\n'
 proxy "${upstreams[@]}"
+# API only: the desktop app ships its own UI, so nothing else is served.
 cat <<'CADDY'
     }
     handle {
-        root * /opt/metis/apps/web/dist
-        header {
-            Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
-            X-Content-Type-Options nosniff
-            Referrer-Policy no-referrer
-            Permissions-Policy "microphone=(self), camera=(), geolocation=()"
-        }
-        @revalidate path / /index.html /sw.js
-        header @revalidate Cache-Control "no-cache"
-        file_server
+        respond 404
     }
 }
 CADDY

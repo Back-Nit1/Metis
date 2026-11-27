@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from metis_api.lambda_entry import daily_planning
 from metis_api.planning import handle_daily_due, run_local_daily_due
 from metis_contracts import ErrorCode, EventType, MetisError, Plan, reset_settings_cache
 
@@ -151,18 +150,6 @@ def test_local_timer_path(client, adapters, clock):
     assert first["enqueued"] == 1
     (again,) = run_local_daily_due(adapters.state_store, adapters.clock, adapters.schedule_store)
     assert again["reason"] == "duplicate"
-
-
-def test_lambda_entry_uses_server_side_state(client, adapters, monkeypatch):
-    patch_prefs(client)
-    monkeypatch.setattr("metis_api.lambda_entry._worker_context", lambda: _Ctx(adapters))
-    out = daily_planning({"user_id": USER, "scheduled_time": NOON}, None)
-    assert out["enqueued"] == 1
-
-
-class _Ctx:
-    def __init__(self, a):
-        self.state_store, self.clock = a.state_store, a.clock
 
 
 # --- worker-path degradation ------------------------------------------------- #

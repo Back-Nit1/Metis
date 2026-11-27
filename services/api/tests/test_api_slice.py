@@ -686,7 +686,7 @@ def test_every_response_carries_a_correlation_id(client):
     assert response.headers["X-Correlation-Id"]
 
 
-# --- backend gaps: purge job, capture list, availability edit/delete, vapid -- #
+# --- backend gaps: purge job, capture list, availability edit/delete ------- #
 
 
 def test_purge_job_is_queued_until_the_worker_finishes_then_ready(client, worker):
@@ -737,22 +737,6 @@ def test_availability_patch_and_delete_are_revision_checked(client):
     assert client.app.state.adapters.state_store.get_planning_epoch(USER) > before
     assert client.get("/v1/availability?local_date=2026-10-05").json() == []
     assert client.delete("/v1/availability/avail_e?expected_revision=2").status_code == 404
-
-
-def test_limits_expose_only_the_public_vapid_key(client, monkeypatch):
-    body = client.get("/v1/limits").json()
-    assert body["vapid_public_key"] is None
-    assert not any("private" in k for k in body)
-
-
-def test_limits_publish_the_vapid_public_key_when_configured(client, monkeypatch):
-    from metis_contracts import reset_settings_cache
-
-    monkeypatch.setenv("METIS_VAPID_PUBLIC_KEY", "BPublicKey")
-    reset_settings_cache()
-    body = client.get("/v1/limits").json()
-    assert body["vapid_public_key"] == "BPublicKey"
-    assert "vapid_private_key_param" not in body
 
 
 def test_list_reminders_pages_and_filters_by_state(client, worker):

@@ -232,10 +232,8 @@ def get_usage(ctx: Context, local_date: date | None = None) -> UsageResponse:
         reserved_micro_usd=usage.reserved_micro_usd,
         estimated_infra_micro_usd=None,
         unmeasured_components=[
-            "Fargate ASR task time",
-            "object storage and requests",
-            "DynamoDB requests",
-            "queues, scheduler and logs",
+            "ASR worker time",
+            "server compute and storage",
             "network egress",
         ],
         model_calls=usage.model_calls,

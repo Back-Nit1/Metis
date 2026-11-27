@@ -3,7 +3,6 @@
  * (`hud:open-review`). The id waits here until the Capture screen takes it.
  */
 import { useEffect, useSyncExternalStore } from "react";
-import { isDesktop } from "./desktop";
 import { OPEN_REVIEW_EVENT, parseOpenReview, tauriListen } from "./hud";
 
 let pending: string | null = null;
@@ -32,7 +31,6 @@ export function handleOpenReview(raw: unknown, go: () => void): void {
 
 export function useOpenReviewListener(go: () => void): void {
   useEffect(() => {
-    if (!isDesktop()) return;
     let off: (() => void) | undefined;
     let closed = false;
     tauriListen(OPEN_REVIEW_EVENT, (raw) => handleOpenReview(raw, go))

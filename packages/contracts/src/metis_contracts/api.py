@@ -319,13 +319,6 @@ class RescheduleReminderRequest(StrictModel):
         return self
 
 
-class RegisterPushRequest(StrictModel):
-    endpoint: Annotated[str, Field(min_length=10, max_length=2000)]
-    p256dh: str
-    auth: str
-    user_agent: Annotated[str | None, Field(default=None, max_length=300)] = None
-
-
 # --------------------------------------------------------------------------- #
 # Today / plans
 # --------------------------------------------------------------------------- #

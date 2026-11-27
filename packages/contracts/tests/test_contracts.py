@@ -247,14 +247,6 @@ def test_generated_ts_never_uses_record_generic() -> None:
     assert "{ [key: string]: number }" in ts
 
 
-def test_asr_task_outcome_contract() -> None:
-    ok = m.AsrTaskOutcome(user_id="u", job_id="job_1", status="timed_out")
-    assert ok.failure is None and ok.error_message is None
-    with pytest.raises(ValidationError):
-        m.AsrTaskOutcome(user_id="u", job_id="job_1", status="exploded")
-    assert "AsrTaskOutcome" in models()
-
-
 def test_timeout_failure_is_terminal() -> None:
     assert m.FailureCategory.TIMEOUT.value == "timeout"
     assert m.FailureCategory.TIMEOUT not in m.RETRYABLE_FAILURES

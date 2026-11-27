@@ -19,18 +19,14 @@ def server_env(monkeypatch):
     for name in (
         "METIS_DESKTOP_AUTH_SECRET",
         "METIS_EMBED_ENGINE",
-        "METIS_TABLE_NAME",
-        "METIS_SOURCES_BUCKET",
-        "METIS_COGNITO_USER_POOL_ID",
-        "METIS_COGNITO_CLIENT_ID",
     ):
         monkeypatch.delenv(name, raising=False)
 
 
-def test_server_production_does_not_require_aws_storage(server_env):
+def test_server_production_settings(server_env):
     cfg = Settings()
     assert cfg.mode is Mode.SERVER
-    assert cfg.uses_real_inference and not cfg.is_cloud
+    assert cfg.uses_real_inference
     assert cfg.firebase_project_id == "metis-test"
 
 

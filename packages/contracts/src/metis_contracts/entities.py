@@ -730,6 +730,7 @@ ENTITY_MODELS: dict[str, type[Record]] = {
     "memory": Memory,
     "reminder": Reminder,
     "notification": Notification,
+    # ponytail: web push is gone; kind kept so old hosted rows still decode in /v1/changes. Drop after a data migration.
     "push_subscription": PushSubscription,
     "preferences": Preferences,
     "availability": AvailabilityBlock,

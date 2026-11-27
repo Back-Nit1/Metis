@@ -86,6 +86,21 @@ cat <<'CADDY'
     handle /v1/changes {
 CADDY
 proxy "${changes_upstreams[@]}"
-printf '\t}\n\thandle {\n'
+printf '\t}\n\t@api path /v1 /v1/*\n\thandle @api {\n'
 proxy "${upstreams[@]}"
-printf '\t}\n}\n'
+cat <<'CADDY'
+    }
+    handle {
+        root * /opt/metis/apps/web/dist
+        header {
+            Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+            X-Content-Type-Options nosniff
+            Referrer-Policy no-referrer
+            Permissions-Policy "microphone=(self), camera=(), geolocation=()"
+        }
+        @revalidate path / /index.html /sw.js
+        header @revalidate Cache-Control "no-cache"
+        file_server
+    }
+}
+CADDY

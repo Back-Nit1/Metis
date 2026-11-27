@@ -119,7 +119,6 @@ unit metis-changes "$APP/.venv/bin/uvicorn metis_api.main:app --host 127.0.0.1 -
 unit metis-timers "$APP/.venv/bin/python -m metis_pipeline.local_worker --mode timers --processes 1"
 unit metis-worker "$APP/.venv/bin/python -m metis_pipeline.local_worker"
 unit metis-speech "$APP/.venv/bin/python -m metis_speech.server --port 8787"
-unit metis-web "/usr/bin/python3 -m http.server 5173 --bind 127.0.0.1 --directory $APP/apps/web/dist"
 
 # Keep the API's global concurrency ceiling separate from its per-client
 # sliding-window request limit. A drop-in avoids shell interpolation in
@@ -166,9 +165,12 @@ systemctl reload-or-restart caddy
 chown -R metis:metis "$DATA"
 chown -R root:root "$APP" "$MODELS" && chmod -R a+rX "$APP" "$MODELS"
 systemctl daemon-reload
-systemctl enable -q metis-api metis-changes metis-worker metis-timers metis-speech metis-web
+systemctl enable -q metis-api metis-changes metis-worker metis-timers metis-speech
 systemctl enable -q --now metis-queue-observer.timer
-systemctl restart metis-speech metis-api metis-changes metis-worker metis-timers metis-web
+systemctl restart metis-speech metis-api metis-changes metis-worker metis-timers
+if [ -f /etc/systemd/system/metis-web.service ]; then
+  systemctl disable --now metis-web
+fi
 
 # Host CPU/memory metrics plus systemd journal logs. The VM service account is
 # provisioned by configure-monitoring.sh with only metric/log writer roles.

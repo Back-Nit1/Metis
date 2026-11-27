@@ -25,6 +25,16 @@ def test_hosted_config_clears_shared_identity():
     assert "METIS_ENV=prod\n" in result
     assert "METIS_ALLOW_FIXTURE_IDENTITY=false\n" in result
     assert "https://tauri.localhost" in result
+    assert "METIS_FLOW_MODEL=example:1\n" in result
+    assert "METIS_FLOW_MODEL_ENDPOINT=http://127.0.0.1:11434\n" in result
+
+
+def test_flow_can_use_a_different_chat_model():
+    env = {**config(), "METIS_FLOW_MODEL": "small-chat:3"}
+    result = module.render(env)
+    assert "METIS_FLOW_MODEL=small-chat:3\n" in result
+    assert "METIS_LOCAL_LLM_MODEL=example:1\n" in result
+    assert "METIS_LOCAL_EMBED_MODEL=embed:2\n" in result
 
 
 @pytest.mark.parametrize(
@@ -33,6 +43,7 @@ def test_hosted_config_clears_shared_identity():
         ("METIS_FIREBASE_PROJECT_ID", ""),
         ("METIS_LOCAL_LLM_MODEL", "model\nMETIS_ALLOW_FIXTURE_IDENTITY=true"),
         ("METIS_LOCAL_EMBED_MODEL", ""),
+        ("METIS_FLOW_MODEL", "bad\nmodel"),
         ("METIS_WEB_ORIGIN", "https://user:password@example.test"),
         ("METIS_WEB_ORIGIN", "http://example.test"),
         ("METIS_WEB_ORIGIN", "https://example.test/path"),

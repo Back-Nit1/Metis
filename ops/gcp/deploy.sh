@@ -3,12 +3,8 @@
 #
 #   PROJECT=<gcp-project-id> ops/gcp/deploy.sh
 #
-# What runs there: METIS_MODE=local (SQLite, filesystem objects, fixture
-# inference) with the real faster-whisper transcriber. Every service binds to
-# loopback. The only public surface is Caddy on :443 (<ip>.sslip.io, automatic
-# TLS) in front of the API, which rejects any request without the single-user
-# access key in /etc/metis-api.env. SSH stays IAP-only. The dictation (:8787)
-# and static web (:5173) ports are never exposed.
+# Caddy serves the browser build and routes /v1 requests to loopback services.
+# SSH stays IAP-only. Configure per-user server mode with configure-hosted.sh.
 #
 # Ships committed HEAD (git archive), not the working tree.
 set -euo pipefail
@@ -117,14 +113,14 @@ if [ -z "$(g compute instances describe "$VM" --zone "$ZONE" --format='value(net
   g compute instances add-access-config "$VM" --zone "$ZONE" --access-config-name external-nat --address "$IP"
 fi
 HOST="${IP//./-}.sslip.io"
-export VITE_METIS_API="https://$HOST"
+export VITE_METIS_API="" VITE_METIS_LOGIN=firebase
 
 # Validate the edge inputs before copying or changing anything on the VM.
 HOST="$HOST" METIS_API_UPSTREAMS="$METIS_API_UPSTREAMS" METIS_CHANGES_UPSTREAMS="$METIS_CHANGES_UPSTREAMS" \
   ops/gcp/render-caddyfile.sh >/dev/null
 
 # Build the web client from the same commit, in a clean export.
-stage="$(mktemp -d)"; trap 'rm -rf "$stage"' EXIT
+stage="$(mktemp -d)"; trap 'rm -rf "$stage" "$stage.tar.gz"' EXIT
 git archive "$BUILD_SHA" | tar -x -C "$stage"
 (cd "$stage" && pnpm install --frozen-lockfile --filter @metis/web... && pnpm --filter @metis/web build)
 # macOS otherwise serializes com.apple.* metadata into pax headers that GNU
@@ -144,9 +140,7 @@ g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "$VM_SETUP_COM
 
 cat <<EOF
 
-Deployed: https://$HOST  (API; the UI is ops/vercel/deploy.sh)
-Access key (set it only as the Vercel env var METIS_ACCESS_KEY; never paste it into a browser, commit or share it):
-  gcloud --project $PROJECT compute ssh $VM --zone $ZONE --tunnel-through-iap --command 'sudo cat /etc/metis-api.env'
-Dictation secret (loopback :8787, reached only through an IAP tunnel):
-  gcloud --project $PROJECT compute ssh $VM --zone $ZONE --tunnel-through-iap --command 'sudo cat /etc/metis-speech.env'
+Deployed: https://$HOST (web and API)
+Health: https://$HOST/v1/health
+See ops/gcp/hosted-desktop.md for sign-in and cutover.
 EOF

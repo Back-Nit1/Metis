@@ -32,7 +32,7 @@ fi
 printf 'vm.swappiness=60\n' >/etc/sysctl.d/60-metis-swap.conf
 sysctl -q -p /etc/sysctl.d/60-metis-swap.conf
 
-for service in api worker speech timers web; do
+for service in api worker speech timers; do
   install -D -m 0644 "$APP/ops/gcp/systemd/metis-runtime-$service.conf" \
     "/etc/systemd/system/metis-$service.service.d/runtime.conf"
 done

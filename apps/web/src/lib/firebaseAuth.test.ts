@@ -7,6 +7,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("hosted authentication", () => {
   it("requires per-user auth on hosted desktop and never uses the password proxy", () => {
     expect(authMode({ VITE_METIS_LOGIN: "password" }, true, true).kind).toBe("misconfigured");
+    expect(authMode({ VITE_METIS_LOGIN: "firebase" }, false).kind).toBe("misconfigured");
     expect(authMode({ VITE_METIS_FIREBASE_API_KEY: config.apiKey }, true, true)).toEqual({ kind: "misconfigured", missing: ["VITE_METIS_FIREBASE_PROJECT_ID"] });
     expect(authMode({ VITE_METIS_FIREBASE_API_KEY: config.apiKey, VITE_METIS_FIREBASE_PROJECT_ID: config.projectId }, true, true)).toEqual({ kind: "firebase", config });
   });
